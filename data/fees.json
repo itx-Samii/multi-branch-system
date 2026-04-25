@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "studentId": 1,
+    "month": "April",
+    "year": "2026",
+    "baseAmount": 3500,
+    "discount": 500,
+    "amount": 3000,
+    "status": "Paid",
+    "issueDate": "2026-04-25T03:51:52.278Z",
+    "paymentDate": "2026-04-25T03:57:11.989Z",
+    "paidTuition": 3000,
+    "paidAC": 4000,
+    "totalReceived": 7000
+  }
+]

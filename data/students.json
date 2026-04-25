@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "name": "Sameer",
+    "fatherName": "Abdullah",
+    "classId": "1",
+    "monthlyFee": 3500,
+    "discount": 500,
+    "annualCharges": 4500,
+    "paidAnnualCharges": 4000,
+    "status": "Active",
+    "createdAt": "2026-04-25T03:51:47.596Z"
+  }
+]
