@@ -115,71 +115,47 @@ export default function GenerateFees() {
 
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
-      <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem'}}>
-        <div>
-          <h1>Print Student Challans</h1>
-          <p>Search and print dynamic fee vouchers for {currentMonth} {currentYear}.</p>
-        </div>
-        <div className="glass-panel" style={{padding: '1rem', border: '1px solid var(--primary)'}}>
-          <form onSubmit={handleBulkGenerate} style={{display: 'flex', gap: '0.5rem', alignItems: 'flex-end'}}>
-             <div>
-               <label className="form-label" style={{fontSize: '0.7rem'}}>Billing Month</label>
-               <select className="form-input" style={{padding: '0.4rem', fontSize: '0.8rem'}} value={genMonth} onChange={e => setGenMonth(e.target.value)}>
-                 {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => <option key={m} value={m}>{m}</option>)}
-               </select>
-             </div>
-             <div>
-               <label className="form-label" style={{fontSize: '0.7rem'}}>Year</label>
-               <select className="form-input" style={{padding: '0.4rem', fontSize: '0.8rem'}} value={genYear} onChange={e => setGenYear(e.target.value)}>
-                 {Array.from({length: 5}, (_, i) => (new Date().getFullYear() - 2 + i).toString()).map(y => <option key={y} value={y}>{y}</option>)}
-               </select>
-             </div>
-             <div>
-               <label className="form-label" style={{fontSize: '0.7rem'}}>Class</label>
-               <select className="form-input" style={{padding: '0.4rem', fontSize: '0.8rem'}} value={genClassId} onChange={e => setGenClassId(e.target.value)}>
-                 <option value="all">All Classes</option>
-                 {classes.map(c => <option key={c.id} value={c.id}>{c.name} {c.section ? `- ${c.section}` : ''}</option>)}
-               </select>
-             </div>
-             <button type="submit" className="btn btn-primary" disabled={isGenerating} style={{padding: '0.5rem 1rem', fontSize: '0.85rem'}}>
-               {isGenerating ? 'Generating...' : 'Bulk Generate Vouchers'}
-             </button>
-          </form>
-        </div>
-      </div>
-
-      <div className="no-print" style={{marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap'}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: '1.5rem'}}>
-          <h2 style={{margin: 0}}>Active Vouchers: {filteredFees.length}</h2>
-          <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-            <label style={{fontSize: '0.9rem', fontWeight: 600}}>Filter Class:</label>
-            <select 
-              className="form-input" 
-              style={{padding: '0.3rem 0.6rem', fontSize: '0.9rem', minWidth: '150px'}}
-              value={selectedClass}
-              onChange={e => setSelectedClass(e.target.value)}
-            >
+      <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2rem', gap: '1.5rem', background: 'var(--bg-card)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--border)'}}>
+        <div style={{flex: 1, display: 'flex', gap: '1rem'}}>
+          <div>
+            <label className="form-label">Billing Month</label>
+            <select className="form-input" value={genMonth} onChange={e => {setGenMonth(e.target.value); fetchMonthFees(e.target.value, genYear);}}>
+              {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Year</label>
+            <select className="form-input" value={genYear} onChange={e => {setGenYear(e.target.value); fetchMonthFees(genMonth, e.target.value);}}>
+              {Array.from({length: 5}, (_, i) => (new Date().getFullYear() - 2 + i).toString()).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div style={{flex: 1}}>
+            <label className="form-label">Filter Class</label>
+            <select className="form-input" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
               <option value="all">All Classes</option>
               {classes.map(c => <option key={c.id} value={c.name}>{c.name} {c.section ? `- ${c.section}` : ''}</option>)}
             </select>
           </div>
+        </div>
+        
+        <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
           <button 
-            className="btn btn-success" 
-            style={{padding: '0.4rem 1.2rem', fontWeight: 700}}
+            className="btn btn-primary" 
+            style={{height: '42px', padding: '0 1.5rem', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem'}}
             onClick={handlePrintBulk}
             disabled={filteredFees.length === 0}
           >
-            Print All Filtered ({filteredFees.length})
+            <span>🖨️</span> Print Class Challans ({filteredFees.length})
           </button>
+          <input 
+            type="text" 
+            placeholder="Search student..." 
+            className="form-input" 
+            style={{maxWidth: '250px', height: '42px'}}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
-        <input 
-          type="text" 
-          placeholder="Search Name or Father's Name..." 
-          className="form-input" 
-          style={{maxWidth: '300px'}}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
       </div>
 
       {filteredFees.length === 0 ? (
