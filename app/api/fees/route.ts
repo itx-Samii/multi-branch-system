@@ -7,11 +7,10 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
+  getDoc,
   query, 
   where,
-  getDoc,
-  writeBatch,
-  orderBy
+  writeBatch
 } from 'firebase/firestore';
 
 // --- TypeScript Interfaces ---
@@ -53,10 +52,12 @@ export async function GET(request: Request) {
     const month = searchParams.get('month');
     const year = searchParams.get('year');
 
-    // Fetch all required data from Firebase
     const feesSnap = await getDocs(collection(db, 'fees'));
     let allFees: any[] = [];
-    feesSnap.forEach(doc => allFees.push({ ...doc.data(), id: parseInt(doc.id) }));
+    feesSnap.forEach(doc => {
+      const data = doc.data();
+      allFees.push({ ...data, id: parseInt(doc.id) });
+    });
 
     const studentsSnap = await getDocs(collection(db, 'students'));
     let allStudents: any[] = [];
@@ -76,7 +77,6 @@ export async function GET(request: Request) {
       const studentClass = student?.classId ? allClasses.find((c) => c.id.toString() === student.classId.toString()) : null;
       const classDisplay = studentClass ? `${studentClass.name}${studentClass.section ? ` - ${studentClass.section}` : ''}` : student?.classId || 'N/A';
       
-      // Dynamic Arrears Calculation (Live balance from other unpaid vouchers)
       const dynamicArrears = allFees
         .filter(prev => 
           prev.studentId === f.studentId && 
@@ -105,9 +105,9 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json(enriched);
-  } catch (err) {
+  } catch (err: any) {
     console.error("Firebase GET Fees Error:", err);
-    return NextResponse.json({ error: 'Failed to fetch fees from cloud' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch fees', details: err.message }, { status: 500 });
   }
 }
 
@@ -115,12 +115,11 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    // CASE 1: Standalone AC Payment
     if (body.isACOnly) {
       const { studentId, amount, paymentDate } = body;
-      if (!studentId) return NextResponse.json({ error: 'Student ID is required' }, { status: 400 });
+      const sId = parseInt(studentId);
 
-      const studentRef = doc(db, 'students', studentId.toString());
+      const studentRef = doc(db, 'students', sId.toString());
       const studentSnap = await getDoc(studentRef);
       if (!studentSnap.exists()) return NextResponse.json({ error: 'Student not found' }, { status: 404 });
       
@@ -136,7 +135,7 @@ export async function POST(request: Request) {
 
       const newRecord: FeeRecord = {
         id: nextId,
-        studentId,
+        studentId: sId,
         month: 'Annual Charges',
         year: new Date(paymentDate || Date.now()).getFullYear().toString(),
         baseAmount: 0,
@@ -155,10 +154,7 @@ export async function POST(request: Request) {
       return NextResponse.json(newRecord);
     }
 
-    // CASE 2: Batch Monthly Generation
     const { month, year, classId } = body;
-    if (!month || !year) return NextResponse.json({ error: 'Month and year required' }, { status: 400 });
-
     const studentsSnap = await getDocs(collection(db, 'students'));
     const feesSnap = await getDocs(collection(db, 'fees'));
     
@@ -174,7 +170,7 @@ export async function POST(request: Request) {
     studentsSnap.forEach((sDoc) => {
       const student = sDoc.data() as Student;
       if (student.status !== 'Active') return;
-      if (classId && classId !== 'all' && student.classId !== classId) return;
+      if (classId && classId !== 'all' && student.classId?.toString() !== classId.toString()) return;
 
       const exists = allFees.find((f) => f.studentId === student.id && f.month === month && f.year === year);
       if (!exists) {
@@ -205,9 +201,9 @@ export async function POST(request: Request) {
 
     await batch.commit();
     return NextResponse.json({ success: true, count: generatedCount });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Firebase POST Fees Error:", err);
-    return NextResponse.json({ error: 'Failed to process request on cloud' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to process request', details: err.message }, { status: 500 });
   }
 }
 
@@ -216,9 +212,14 @@ export async function PUT(request: Request) {
     const { id, paidTuition, paidAC } = await request.json();
     if (!id) return NextResponse.json({ error: 'Voucher ID missing' }, { status: 400 });
 
+    console.log(`Processing payment for Voucher ID: ${id}`);
     const feeRef = doc(db, 'fees', id.toString());
     const feeSnap = await getDoc(feeRef);
-    if (!feeSnap.exists()) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
+    
+    if (!feeSnap.exists()) {
+      console.error(`Voucher ${id} not found in Firestore`);
+      return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
+    }
 
     const feeRecord = feeSnap.data() as FeeRecord;
     const studentId = feeRecord.studentId;
@@ -226,31 +227,38 @@ export async function PUT(request: Request) {
     const batch = writeBatch(db);
 
     // 1. Handle AC Payment
-    const newPaidAC = parseFloat(paidAC || '0');
-    if (newPaidAC > 0) {
+    const valPaidAC = parseFloat(paidAC || '0');
+    if (valPaidAC > 0) {
       const studentRef = doc(db, 'students', studentId.toString());
       const studentSnap = await getDoc(studentRef);
       if (studentSnap.exists()) {
         batch.update(studentRef, {
-          paidAnnualCharges: (studentSnap.data().paidAnnualCharges || 0) + newPaidAC
+          paidAnnualCharges: (studentSnap.data().paidAnnualCharges || 0) + valPaidAC
         });
       }
       batch.update(feeRef, {
-        paidAC: (feeRecord.paidAC || 0) + newPaidAC,
-        totalReceived: (feeRecord.totalReceived || 0) + newPaidAC
+        paidAC: (feeRecord.paidAC || 0) + valPaidAC,
+        totalReceived: (feeRecord.totalReceived || 0) + valPaidAC
       });
     }
 
     // 2. Handle Tuition Payment (Propagation)
     let remainingPayment = parseFloat(paidTuition || '0');
     if (remainingPayment > 0) {
-      const allFeesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', studentId)));
+      // Important: Match by number if stored as number
+      const sId = typeof studentId === 'string' ? parseInt(studentId) : studentId;
+      const allFeesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', sId)));
+      
       let studentVouchers: any[] = [];
       allFeesSnap.forEach(doc => studentVouchers.push({ ...doc.data(), docId: doc.id }));
       
       studentVouchers = studentVouchers
         .filter(f => f.month !== 'Annual Charges' && f.status !== 'Paid')
-        .sort((a, b) => new Date(a.issueDate).getTime() - new Date(b.issueDate).getTime());
+        .sort((a, b) => {
+          const dateA = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+          const dateB = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+          return dateA - dateB;
+        });
 
       for (const v of studentVouchers) {
         if (remainingPayment <= 0) break;
@@ -270,13 +278,11 @@ export async function PUT(request: Request) {
         remainingPayment -= amountToApply;
       }
 
-      // Overpayment applies to the current voucher
+      // Overpayment logic
       if (remainingPayment > 0) {
-        const currentFeeSnap = await getDoc(feeRef);
-        const currentData = currentFeeSnap.data();
         batch.update(feeRef, {
-          paidTuition: (currentData?.paidTuition || 0) + remainingPayment,
-          totalReceived: (currentData?.totalReceived || 0) + remainingPayment,
+          paidTuition: (feeRecord.paidTuition || 0) + remainingPayment,
+          totalReceived: (feeRecord.totalReceived || 0) + remainingPayment,
           status: 'Paid'
         });
       }
@@ -284,9 +290,9 @@ export async function PUT(request: Request) {
 
     await batch.commit();
     return NextResponse.json({ success: true });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Firebase PUT Fees Error:", err);
-    return NextResponse.json({ error: 'System Error processing payment on cloud' }, { status: 500 });
+    return NextResponse.json({ error: 'System Error processing payment', details: err.message }, { status: 500 });
   }
 }
 
@@ -303,7 +309,6 @@ export async function DELETE(request: Request) {
     const feeToRemove = feeSnap.data() as FeeRecord;
     const batch = writeBatch(db);
 
-    // REVERSAL LOGIC: Undo student's paid AC balance
     if (feeToRemove.status === 'Paid' && (feeToRemove.paidAC || 0) > 0) {
       const studentRef = doc(db, 'students', feeToRemove.studentId.toString());
       const studentSnap = await getDoc(studentRef);
@@ -318,8 +323,8 @@ export async function DELETE(request: Request) {
     await batch.commit();
 
     return NextResponse.json({ success: true });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Firebase DELETE Fee Error:", err);
-    return NextResponse.json({ error: 'Failed to reverse fee on cloud' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to reverse fee', details: err.message }, { status: 500 });
   }
 }
