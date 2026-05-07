@@ -1,5 +1,18 @@
 import { NextResponse } from 'next/server';
-import { readData, writeData, generateId } from '@/lib/fileHandler';
+import { db } from '@/lib/firebase';
+import { 
+  collection, 
+  getDocs, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where,
+  getDoc,
+  writeBatch,
+  orderBy
+} from 'firebase/firestore';
 
 // --- TypeScript Interfaces ---
 interface FeeRecord {
@@ -34,40 +47,37 @@ interface Student {
   status: string;
 }
 
-interface ClassRecord {
-  id: number;
-  name: string;
-  section?: string;
-}
-
-const FILE_NAME = 'fees.json';
-const STUDENTS_FILE = 'students.json';
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month');
     const year = searchParams.get('year');
 
-    const fees = await readData<FeeRecord>(FILE_NAME);
-    const students = await readData<Student>(STUDENTS_FILE);
-    const classes = await readData<ClassRecord>('classes.json').catch(() => []);
+    // Fetch all required data from Firebase
+    const feesSnap = await getDocs(collection(db, 'fees'));
+    let allFees: any[] = [];
+    feesSnap.forEach(doc => allFees.push({ ...doc.data(), id: parseInt(doc.id) }));
+
+    const studentsSnap = await getDocs(collection(db, 'students'));
+    let allStudents: any[] = [];
+    studentsSnap.forEach(doc => allStudents.push({ ...doc.data() }));
+
+    const classesSnap = await getDocs(collection(db, 'classes'));
+    let allClasses: any[] = [];
+    classesSnap.forEach(doc => allClasses.push({ ...doc.data() }));
     
-    let filtered = fees;
+    let filtered = allFees;
     if (month && year) {
       filtered = filtered.filter((f) => f.month === month && f.year === year);
     }
 
     const enriched = filtered.map((f) => {
-      const student = students.find((s) => s.id === f.studentId);
-      const studentClass = student?.classId ? classes.find((c) => c.id.toString() === student.classId.toString()) : null;
+      const student = allStudents.find((s) => s.id === f.studentId);
+      const studentClass = student?.classId ? allClasses.find((c) => c.id.toString() === student.classId.toString()) : null;
       const classDisplay = studentClass ? `${studentClass.name}${studentClass.section ? ` - ${studentClass.section}` : ''}` : student?.classId || 'N/A';
       
-      // Dynamic Arrears Calculation:
-      // Only recalculate if the current voucher is not fully paid.
-      // Sum up all OTHER unpaid/partial vouchers for this student that are NOT this one.
-      // Calculate Dynamic Arrears (Live balance from other unpaid vouchers)
-      const dynamicArrears = fees
+      // Dynamic Arrears Calculation (Live balance from other unpaid vouchers)
+      const dynamicArrears = allFees
         .filter(prev => 
           prev.studentId === f.studentId && 
           prev.id !== f.id && 
@@ -96,7 +106,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json(enriched);
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to fetch fees' }, { status: 500 });
+    console.error("Firebase GET Fees Error:", err);
+    return NextResponse.json({ error: 'Failed to fetch fees from cloud' }, { status: 500 });
   }
 }
 
@@ -104,28 +115,25 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    // CASE 1: Standalone AC Payment (from AC Ledger)
+    // CASE 1: Standalone AC Payment
     if (body.isACOnly) {
       const { studentId, amount, paymentDate } = body;
-
-      // Validate AC payment
       if (!studentId) return NextResponse.json({ error: 'Student ID is required' }, { status: 400 });
-      if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-        return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
-      }
 
-      const students = await readData<Student>(STUDENTS_FILE);
-      const studentIndex = students.findIndex((s) => s.id === studentId);
+      const studentRef = doc(db, 'students', studentId.toString());
+      const studentSnap = await getDoc(studentRef);
+      if (!studentSnap.exists()) return NextResponse.json({ error: 'Student not found' }, { status: 404 });
       
-      if (studentIndex === -1) return NextResponse.json({ error: 'Student not found' }, { status: 404 });
-      
-      // Update student balance
-      students[studentIndex].paidAnnualCharges = (students[studentIndex].paidAnnualCharges || 0) + parseFloat(amount);
-      await writeData(STUDENTS_FILE, students);
+      const student = studentSnap.data() as Student;
+      await updateDoc(studentRef, {
+        paidAnnualCharges: (student.paidAnnualCharges || 0) + parseFloat(amount)
+      });
 
-      // Create transaction record
-      const allFees = await readData<FeeRecord>(FILE_NAME);
-      const nextId = await generateId(FILE_NAME);
+      const feesSnap = await getDocs(collection(db, 'fees'));
+      let maxId = 0;
+      feesSnap.forEach(doc => { if (parseInt(doc.id) > maxId) maxId = parseInt(doc.id); });
+      const nextId = maxId + 1;
+
       const newRecord: FeeRecord = {
         id: nextId,
         studentId,
@@ -143,8 +151,7 @@ export async function POST(request: Request) {
         note: 'Direct AC Payment'
       };
       
-      allFees.push(newRecord);
-      await writeData(FILE_NAME, allFees);
+      await setDoc(doc(db, 'fees', nextId.toString()), newRecord);
       return NextResponse.json(newRecord);
     }
 
@@ -152,38 +159,33 @@ export async function POST(request: Request) {
     const { month, year, classId } = body;
     if (!month || !year) return NextResponse.json({ error: 'Month and year required' }, { status: 400 });
 
-    // Validate month is a real month name
-    const validMonths = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    if (!validMonths.includes(month)) {
-      return NextResponse.json({ error: 'Invalid month name' }, { status: 400 });
-    }
-
-    const allStudents = await readData<Student>(STUDENTS_FILE);
-    const allFees = await readData<FeeRecord>(FILE_NAME);
-    let nextId = await generateId(FILE_NAME);
+    const studentsSnap = await getDocs(collection(db, 'students'));
+    const feesSnap = await getDocs(collection(db, 'fees'));
     
+    let allFees: any[] = [];
+    feesSnap.forEach(doc => allFees.push(doc.data()));
+    let maxId = 0;
+    feesSnap.forEach(doc => { if (parseInt(doc.id) > maxId) maxId = parseInt(doc.id); });
+    let nextId = maxId + 1;
+
+    const batch = writeBatch(db);
     let generatedCount = 0;
 
-    for (const student of allStudents) {
-      if (student.status !== 'Active') continue;
-      if (classId && classId !== 'all' && student.classId !== classId) continue;
+    studentsSnap.forEach((sDoc) => {
+      const student = sDoc.data() as Student;
+      if (student.status !== 'Active') return;
+      if (classId && classId !== 'all' && student.classId !== classId) return;
 
-      // Check if fee already exists
       const exists = allFees.find((f) => f.studentId === student.id && f.month === month && f.year === year);
       if (!exists) {
-        // Calculate Previous Arrears
-        // Arrears = Sum of (amount - totalReceived) for all Unpaid/Partially Paid records
         const arrears = allFees
           .filter(f => f.studentId === student.id && f.status !== 'Paid' && f.month !== 'Annual Charges')
-          .reduce((sum, f) => {
-            const due = (f.amount || 0) - (f.paidTuition || 0);
-            return sum + (due > 0 ? due : 0);
-          }, 0);
+          .reduce((sum, f) => sum + ((f.amount || 0) - (f.paidTuition || 0)), 0);
 
         const netAmount = (student.monthlyFee || 0) - (student.discount || 0);
 
-        allFees.push({
-          id: nextId++,
+        const newFee = {
+          id: nextId,
           studentId: student.id,
           month,
           year,
@@ -194,18 +196,18 @@ export async function POST(request: Request) {
           status: 'Unpaid',
           issueDate: new Date().toISOString(),
           paymentDate: null
-        });
+        };
+        batch.set(doc(db, 'fees', nextId.toString()), newFee);
+        nextId++;
         generatedCount++;
       }
-    }
+    });
 
-    if (generatedCount > 0) {
-      await writeData(FILE_NAME, allFees);
-    }
-    
+    await batch.commit();
     return NextResponse.json({ success: true, count: generatedCount });
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
+    console.error("Firebase POST Fees Error:", err);
+    return NextResponse.json({ error: 'Failed to process request on cloud' }, { status: 500 });
   }
 }
 
@@ -214,75 +216,77 @@ export async function PUT(request: Request) {
     const { id, paidTuition, paidAC } = await request.json();
     if (!id) return NextResponse.json({ error: 'Voucher ID missing' }, { status: 400 });
 
-    const allFees = await readData<FeeRecord>(FILE_NAME);
-    const feeIndex = allFees.findIndex((f) => f.id === id);
-    if (feeIndex === -1) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
+    const feeRef = doc(db, 'fees', id.toString());
+    const feeSnap = await getDoc(feeRef);
+    if (!feeSnap.exists()) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
 
-    const feeRecord = allFees[feeIndex];
+    const feeRecord = feeSnap.data() as FeeRecord;
     const studentId = feeRecord.studentId;
     const paymentDate = new Date().toISOString();
+    const batch = writeBatch(db);
 
-    // 1. Handle AC Payment (Directly to student record)
+    // 1. Handle AC Payment
     const newPaidAC = parseFloat(paidAC || '0');
     if (newPaidAC > 0) {
-      const students = await readData<Student>(STUDENTS_FILE);
-      const studentIndex = students.findIndex((s) => s.id === studentId);
-      if (studentIndex !== -1) {
-        students[studentIndex].paidAnnualCharges = (students[studentIndex].paidAnnualCharges || 0) + newPaidAC;
-        await writeData(STUDENTS_FILE, students);
+      const studentRef = doc(db, 'students', studentId.toString());
+      const studentSnap = await getDoc(studentRef);
+      if (studentSnap.exists()) {
+        batch.update(studentRef, {
+          paidAnnualCharges: (studentSnap.data().paidAnnualCharges || 0) + newPaidAC
+        });
       }
-      allFees[feeIndex].paidAC = (allFees[feeIndex].paidAC || 0) + newPaidAC;
-      allFees[feeIndex].totalReceived = (allFees[feeIndex].totalReceived || 0) + newPaidAC;
+      batch.update(feeRef, {
+        paidAC: (feeRecord.paidAC || 0) + newPaidAC,
+        totalReceived: (feeRecord.totalReceived || 0) + newPaidAC
+      });
     }
 
-    // 2. Handle Tuition Payment (Propagation Logic)
+    // 2. Handle Tuition Payment (Propagation)
     let remainingPayment = parseFloat(paidTuition || '0');
-    
     if (remainingPayment > 0) {
-      // Find all unpaid/partial vouchers for this student (excluding Annual Charges records)
-      // Sort by issueDate or ID to pay oldest first
-      const studentVouchers = allFees
-        .filter(f => f.studentId === studentId && f.month !== 'Annual Charges' && f.status !== 'Paid')
+      const allFeesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', studentId)));
+      let studentVouchers: any[] = [];
+      allFeesSnap.forEach(doc => studentVouchers.push({ ...doc.data(), docId: doc.id }));
+      
+      studentVouchers = studentVouchers
+        .filter(f => f.month !== 'Annual Charges' && f.status !== 'Paid')
         .sort((a, b) => new Date(a.issueDate).getTime() - new Date(b.issueDate).getTime());
 
       for (const v of studentVouchers) {
         if (remainingPayment <= 0) break;
-
         const voucherBalance = (v.amount || 0) - (v.paidTuition || 0);
         if (voucherBalance <= 0) continue;
 
         const amountToApply = Math.min(remainingPayment, voucherBalance);
+        const newPaidTuition = (v.paidTuition || 0) + amountToApply;
         
-        // Find actual record in allFees to update
-        const idx = allFees.findIndex(f => f.id === v.id);
-        if (idx !== -1) {
-          allFees[idx].paidTuition = (allFees[idx].paidTuition || 0) + amountToApply;
-          allFees[idx].totalReceived = (allFees[idx].totalReceived || 0) + amountToApply;
-          allFees[idx].paymentDate = paymentDate;
-          
-          // Update Status
-          if (allFees[idx].paidTuition >= (allFees[idx].amount || 0)) {
-            allFees[idx].status = 'Paid';
-          } else {
-            allFees[idx].status = 'Partially Paid';
-          }
-          
-          remainingPayment -= amountToApply;
-        }
+        batch.update(doc(db, 'fees', v.docId), {
+          paidTuition: newPaidTuition,
+          totalReceived: (v.totalReceived || 0) + amountToApply,
+          paymentDate: paymentDate,
+          status: newPaidTuition >= (v.amount || 0) ? 'Paid' : 'Partially Paid'
+        });
+        
+        remainingPayment -= amountToApply;
       }
 
-      // If there's still money left (Overpayment), put it on the current voucher
+      // Overpayment applies to the current voucher
       if (remainingPayment > 0) {
-        allFees[feeIndex].paidTuition = (allFees[feeIndex].paidTuition || 0) + remainingPayment;
-        allFees[feeIndex].totalReceived = (allFees[feeIndex].totalReceived || 0) + remainingPayment;
-        allFees[feeIndex].status = 'Paid'; // Overpaid is still Paid
+        const currentFeeSnap = await getDoc(feeRef);
+        const currentData = currentFeeSnap.data();
+        batch.update(feeRef, {
+          paidTuition: (currentData?.paidTuition || 0) + remainingPayment,
+          totalReceived: (currentData?.totalReceived || 0) + remainingPayment,
+          status: 'Paid'
+        });
       }
     }
 
-    await writeData(FILE_NAME, allFees);
-    return NextResponse.json(allFees[feeIndex]);
+    await batch.commit();
+    return NextResponse.json({ success: true });
   } catch (err) {
-    return NextResponse.json({ error: 'System Error processing payment' }, { status: 500 });
+    console.error("Firebase PUT Fees Error:", err);
+    return NextResponse.json({ error: 'System Error processing payment on cloud' }, { status: 500 });
   }
 }
 
@@ -292,32 +296,30 @@ export async function DELETE(request: Request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    const allFees = await readData<FeeRecord>(FILE_NAME);
-    const feeIndex = allFees.findIndex((f) => f.id.toString() === id.toString());
+    const feeRef = doc(db, 'fees', id.toString());
+    const feeSnap = await getDoc(feeRef);
+    if (!feeSnap.exists()) return NextResponse.json({ error: 'Fee record not found' }, { status: 404 });
 
-    if (feeIndex === -1) {
-      return NextResponse.json({ error: 'Fee record not found' }, { status: 404 });
-    }
+    const feeToRemove = feeSnap.data() as FeeRecord;
+    const batch = writeBatch(db);
 
-    const feeToRemove = allFees[feeIndex];
-
-    // REVERSAL LOGIC: If the fee was "Paid", we must undo the student's paid AC balance
+    // REVERSAL LOGIC: Undo student's paid AC balance
     if (feeToRemove.status === 'Paid' && (feeToRemove.paidAC || 0) > 0) {
-      const students = await readData<Student>(STUDENTS_FILE);
-      const studentIndex = students.findIndex((s) => s.id === feeToRemove.studentId);
-      if (studentIndex !== -1) {
-        students[studentIndex].paidAnnualCharges = Math.max(0, (students[studentIndex].paidAnnualCharges || 0) - (feeToRemove.paidAC || 0));
-        await writeData(STUDENTS_FILE, students);
+      const studentRef = doc(db, 'students', feeToRemove.studentId.toString());
+      const studentSnap = await getDoc(studentRef);
+      if (studentSnap.exists()) {
+        batch.update(studentRef, {
+          paidAnnualCharges: Math.max(0, (studentSnap.data().paidAnnualCharges || 0) - (feeToRemove.paidAC || 0))
+        });
       }
     }
 
-    // Now remove the fee record
-    const updatedFees = allFees.filter((f) => f.id.toString() !== id.toString());
-    await writeData(FILE_NAME, updatedFees);
+    batch.delete(feeRef);
+    await batch.commit();
 
-    return NextResponse.json({ success: true, message: 'Fee record reversed/deleted successfully' });
+    return NextResponse.json({ success: true });
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to reverse fee' }, { status: 500 });
+    console.error("Firebase DELETE Fee Error:", err);
+    return NextResponse.json({ error: 'Failed to reverse fee on cloud' }, { status: 500 });
   }
 }
-

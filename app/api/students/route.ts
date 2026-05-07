@@ -1,5 +1,17 @@
 import { NextResponse } from 'next/server';
-import { readData, writeData, generateId } from '@/lib/fileHandler';
+import { db } from '@/lib/firebase';
+import { 
+  collection, 
+  getDocs, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where,
+  getDoc,
+  writeBatch
+} from 'firebase/firestore';
 
 // --- TypeScript Interfaces ---
 interface Student {
@@ -18,14 +30,6 @@ interface Student {
   updatedAt?: string;
 }
 
-interface ClassRecord {
-  id: number;
-  name: string;
-  section?: string;
-}
-
-const FILE_NAME = 'students.json';
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -34,13 +38,20 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
 
-    const allStudents = await readData<Student>(FILE_NAME);
-    const allClasses = await readData<ClassRecord>('classes.json').catch(() => []);
+    // 1. Fetch Students
+    const studentsSnap = await getDocs(collection(db, 'students'));
+    let allStudents: any[] = [];
+    studentsSnap.forEach(doc => allStudents.push({ ...doc.data() }));
+
+    // 2. Fetch Classes (for className mapping)
+    const classesSnap = await getDocs(collection(db, 'classes'));
+    let allClasses: any[] = [];
+    classesSnap.forEach(doc => allClasses.push({ ...doc.data() }));
     
     let filtered = allStudents;
     
     // Server side filtering by class
-    if (classIdFilter) {
+    if (classIdFilter && classIdFilter !== 'all') {
       filtered = filtered.filter((s) => s.classId?.toString() === classIdFilter);
     }
 
@@ -57,7 +68,6 @@ export async function GET(request: Request) {
     const start = (page - 1) * limit;
     const end = start + limit;
     const paginated = filtered.slice(start, end).map((s) => {
-      // If classId is a database integer, find the class
       const dbClass = allClasses.find((c) => c.id.toString() === s.classId?.toString());
       return {
         ...s,
@@ -72,7 +82,8 @@ export async function GET(request: Request) {
       totalPages: Math.ceil(total / limit)
     });
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to fetch students' }, { status: 500 });
+    console.error("Firebase GET Error:", err);
+    return NextResponse.json({ error: 'Failed to fetch students from cloud' }, { status: 500 });
   }
 }
 
@@ -90,19 +101,22 @@ export async function POST(request: Request) {
     if (!body.classId) {
       return NextResponse.json({ error: 'Class assignment is required' }, { status: 400 });
     }
-    if (body.monthlyFee !== undefined && (isNaN(Number(body.monthlyFee)) || Number(body.monthlyFee) < 0)) {
-      return NextResponse.json({ error: 'Monthly fee must be a non-negative number' }, { status: 400 });
-    }
 
-    const allStudents = await readData<Student>(FILE_NAME);
-    const id = await generateId(FILE_NAME);
+    // Generate unique numeric ID (Check existing max ID)
+    const studentsSnap = await getDocs(collection(db, 'students'));
+    let maxId = 0;
+    studentsSnap.forEach(doc => {
+      const id = parseInt(doc.id);
+      if (id > maxId) maxId = id;
+    });
+    const newId = maxId + 1;
     
     const newStudent: Student = {
-      id,
+      id: newId,
       name: body.name.trim(),
       fatherName: body.fatherName.trim(),
       admissionNumber: body.admissionNumber?.trim() || undefined,
-      classId: body.classId,
+      classId: body.classId.toString(),
       monthlyFee: parseFloat(body.monthlyFee) || 0,
       discount: parseFloat(body.discount) || 0,
       annualCharges: parseFloat(body.annualCharges) || 0,
@@ -112,12 +126,13 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString()
     };
 
-    allStudents.push(newStudent);
+    // Save to Firestore using the ID as document name
+    await setDoc(doc(db, 'students', newId.toString()), newStudent);
     
-    await writeData(FILE_NAME, allStudents);
     return NextResponse.json(newStudent);
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to add student' }, { status: 500 });
+    console.error("Firebase POST Error:", err);
+    return NextResponse.json({ error: 'Failed to add student to cloud' }, { status: 500 });
   }
 }
 
@@ -126,33 +141,21 @@ export async function PUT(request: Request) {
     const body = await request.json();
     if (!body.id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    // Validate editable fields if provided
-    if (body.name !== undefined && (typeof body.name !== 'string' || body.name.trim().length === 0)) {
-      return NextResponse.json({ error: 'Student name cannot be empty' }, { status: 400 });
-    }
-    if (body.monthlyFee !== undefined && (isNaN(Number(body.monthlyFee)) || Number(body.monthlyFee) < 0)) {
-      return NextResponse.json({ error: 'Monthly fee must be a non-negative number' }, { status: 400 });
-    }
-    if (body.discount !== undefined && (isNaN(Number(body.discount)) || Number(body.discount) < 0)) {
-      return NextResponse.json({ error: 'Discount must be a non-negative number' }, { status: 400 });
-    }
-
-    let students = await readData<Student>(FILE_NAME);
-    const index = students.findIndex((s) => s.id.toString() === body.id.toString());
+    const studentId = body.id.toString();
+    const docRef = doc(db, 'students', studentId);
+    const docSnap = await getDoc(docRef);
     
-    if (index === -1) {
+    if (!docSnap.exists()) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 });
     }
 
-    // Capture old data
-    const existingStudent = students[index];
+    const existingStudent = docSnap.data() as Student;
     
-    const updatedStudent: Student = {
-      ...existingStudent,
+    const updatedData: Partial<Student> = {
       name: body.name !== undefined ? body.name.trim() : existingStudent.name,
       fatherName: body.fatherName !== undefined ? body.fatherName.trim() : existingStudent.fatherName,
       admissionNumber: body.admissionNumber !== undefined ? (body.admissionNumber?.trim() || undefined) : existingStudent.admissionNumber,
-      classId: body.classId !== undefined ? body.classId : existingStudent.classId,
+      classId: body.classId !== undefined ? body.classId.toString() : existingStudent.classId,
       monthlyFee: body.monthlyFee !== undefined ? parseFloat(body.monthlyFee) : existingStudent.monthlyFee,
       discount: body.discount !== undefined ? parseFloat(body.discount) : existingStudent.discount,
       annualCharges: body.annualCharges !== undefined ? parseFloat(body.annualCharges) : existingStudent.annualCharges,
@@ -160,40 +163,33 @@ export async function PUT(request: Request) {
       updatedAt: new Date().toISOString()
     };
 
-    students[index] = updatedStudent;
-    await writeData(FILE_NAME, students);
+    await updateDoc(docRef, updatedData);
 
-    // AUTO-SYNC: If fee or discount changed, update active unpaid vouchers
+    // AUTO-SYNC: If fee or discount changed, update active unpaid vouchers in 'fees' collection
     if (body.monthlyFee !== undefined || body.discount !== undefined || body.annualCharges !== undefined) {
-      const fees = await readData<any>('fees.json');
-      let feeChanged = false;
+      const feesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', parseInt(studentId))));
+      const batch = writeBatch(db);
       
-      const updatedFees = fees.map((f: any) => {
-        if (f.studentId.toString() === body.id.toString() && f.status === 'Unpaid') {
-          feeChanged = true;
-          // Recalculate net amount
+      feesSnap.forEach((feeDoc) => {
+        const f = feeDoc.data();
+        if (f.status === 'Unpaid') {
           const base = body.monthlyFee ?? f.baseAmount;
           const disc = body.discount ?? f.discount;
-          return {
-            ...f,
+          batch.update(doc(db, 'fees', feeDoc.id), {
             baseAmount: base,
             discount: disc,
             amount: base - disc,
-            remainingAnnualCharges: body.annualCharges !== undefined ? (body.annualCharges - (f.paidAC || 0)) : f.remainingAnnualCharges
-          };
+            remainingAnnualCharges: body.annualCharges !== undefined ? (body.annualCharges - (f.paidAC || 0)) : (f.remainingAnnualCharges || 0)
+          });
         }
-        return f;
       });
-
-      if (feeChanged) {
-        await writeData('fees.json', updatedFees);
-      }
+      await batch.commit();
     }
     
-    return NextResponse.json(students[index]);
+    return NextResponse.json({ ...existingStudent, ...updatedData });
   } catch (err) {
-    console.error("PUT Update Error:", err);
-    return NextResponse.json({ error: 'Failed to update student' }, { status: 500 });
+    console.error("Firebase PUT Error:", err);
+    return NextResponse.json({ error: 'Failed to update student on cloud' }, { status: 500 });
   }
 }
 
@@ -203,29 +199,20 @@ export async function DELETE(request: Request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    let students = await readData<Student>(FILE_NAME);
-    const initialLength = students.length;
-    students = students.filter((s) => s.id.toString() !== id);
-    
-    if (students.length === initialLength) {
-      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
-    }
-
-    await writeData(FILE_NAME, students);
+    const docRef = doc(db, 'students', id);
+    await deleteDoc(docRef);
 
     // CASCADING DELETE: Remove all fees associated with this student
-    try {
-      const fees = await readData<any>('fees.json');
-      const updatedFees = fees.filter((f: any) => f.studentId.toString() !== id.toString());
-      if (fees.length !== updatedFees.length) {
-        await writeData('fees.json', updatedFees);
-      }
-    } catch (e) {
-      console.error("Cleanup fees failed", e);
-    }
+    const feesSnap = await getDocs(query(collection(db, 'fees'), where('studentId', '==', parseInt(id))));
+    const batch = writeBatch(db);
+    feesSnap.forEach((feeDoc) => {
+      batch.delete(doc(db, 'fees', feeDoc.id));
+    });
+    await batch.commit();
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    return NextResponse.json({ error: 'Failed to delete student' }, { status: 500 });
+    console.error("Firebase DELETE Error:", err);
+    return NextResponse.json({ error: 'Failed to delete student from cloud' }, { status: 500 });
   }
 }
