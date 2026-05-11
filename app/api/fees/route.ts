@@ -40,12 +40,12 @@ export async function GET(request: Request) {
     const snapshot = await query.get();
     console.log(`✅ FEES_GET: Found ${snapshot.size} records.`);
     
-    let fees = snapshot.docs.map(doc => ({ ...doc.data() }));
+    let fees = snapshot.docs.map((doc: any) => ({ ...doc.data() }));
 
     // Memory filter for search term (case-insensitive substring)
     if (search) {
         console.log(`🔍 FEES_SEARCH: Filtering ${fees.length} records for "${search}"`);
-        fees = fees.filter(f => {
+        fees = fees.filter((f: any) => {
             try {
                 const sName = (f.studentName || "").toString().toLowerCase();
                 const fName = (f.fatherName || "").toString().toLowerCase();

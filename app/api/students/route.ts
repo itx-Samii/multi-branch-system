@@ -147,7 +147,7 @@ export async function PUT(request: Request) {
       await batch.commit();
     }
 
-    return NextResponse.json({ id, ...updatedData });
+    return NextResponse.json({ id, ...cleanUpdateData });
   } catch (err: any) {
     console.error("Firebase Admin PUT Student Error:", err);
     return NextResponse.json({ error: 'Failed to update student', details: err.message }, { status: 500 });
