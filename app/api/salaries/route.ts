@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase-admin';
+import { readData, writeData, generateId } from '@/lib/fileHandler';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const snapshot = await adminDb.collection('salaries').orderBy('paymentDate', 'desc').get();
-    const salaries = snapshot.docs.map(doc => ({ ...doc.data() }));
+    let salaries = await readData<any>('salaries_history.json');
+    // Sort by paymentDate desc
+    salaries.sort((a: any, b: any) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
     return NextResponse.json(salaries);
   } catch (err: any) {
-    console.error("Admin SDK Salaries GET Error:", err);
+    console.error("Local JSON Salaries GET Error:", err);
     return NextResponse.json({ error: 'Failed to fetch salaries' }, { status: 500 });
   }
 }
@@ -18,20 +19,17 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    const snapshot = await adminDb.collection('salaries').get();
-    let maxId = 0;
-    snapshot.forEach(doc => {
-      const id = parseInt(doc.id);
-      if (id > maxId) maxId = id;
-    });
+    const salaries = await readData<any>('salaries_history.json');
+    const newId = await generateId('salaries_history.json');
 
-    const newId = maxId + 1;
     const newSalary = { ...body, id: newId };
     
-    await adminDb.collection('salaries').doc(newId.toString()).set(newSalary);
+    salaries.push(newSalary);
+    await writeData('salaries_history.json', salaries);
+
     return NextResponse.json(newSalary);
   } catch (err: any) {
-    console.error("Admin SDK Salaries POST Error:", err);
+    console.error("Local JSON Salaries POST Error:", err);
     return NextResponse.json({ error: 'Failed to record salary' }, { status: 500 });
   }
 }

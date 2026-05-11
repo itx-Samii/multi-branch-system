@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase-admin';
+import { readData, writeData, generateId } from '@/lib/fileHandler';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,37 +14,24 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')?.toLowerCase();
     const limit = parseInt(searchParams.get('limit') || '100');
 
-    console.log(`🔍 FEES_GET: Querying fees. Search: ${search}, Limit: ${limit}`);
+    let fees = await readData<any>('fees.json');
 
-    let feesCollection = adminDb.collection('fees');
-    let query: any = feesCollection;
-
-    if (studentId) query = query.where('studentId', '==', parseInt(studentId));
+    if (studentId) fees = fees.filter((f: any) => f.studentId === parseInt(studentId));
     
-    // Careful with class filtering: sometimes it's ID, sometimes Name
     if (classId && classId !== 'all') {
         if (!isNaN(Number(classId))) {
-            query = query.where('classId', '==', parseInt(classId));
+            fees = fees.filter((f: any) => f.classId === parseInt(classId));
         } else {
-            query = query.where('className', '==', classId);
+            fees = fees.filter((f: any) => f.className === classId);
         }
     }
     
-    if (status && status !== 'all') query = query.where('status', '==', status);
-    if (month && month !== 'all') query = query.where('month', '==', month);
-    if (year && year !== 'all') query = query.where('year', '==', year);
-
-    // Apply limit for speed
-    query = query.limit(limit || 500);
-
-    const snapshot = await query.get();
-    console.log(`✅ FEES_GET: Found ${snapshot.size} records.`);
-    
-    let fees = snapshot.docs.map((doc: any) => ({ ...doc.data() }));
+    if (status && status !== 'all') fees = fees.filter((f: any) => f.status === status);
+    if (month && month !== 'all') fees = fees.filter((f: any) => f.month === month);
+    if (year && year !== 'all') fees = fees.filter((f: any) => f.year === year);
 
     // Memory filter for search term (case-insensitive substring)
     if (search) {
-        console.log(`🔍 FEES_SEARCH: Filtering ${fees.length} records for "${search}"`);
         fees = fees.filter((f: any) => {
             try {
                 const sName = (f.studentName || "").toString().toLowerCase();
@@ -60,13 +47,16 @@ export async function GET(request: Request) {
                 return false;
             }
         });
-        console.log(`🔍 FEES_SEARCH: Found ${fees.length} matches.`);
+    }
+
+    // Apply limit for speed
+    if (fees.length > limit) {
+      fees = fees.slice(0, limit);
     }
 
     return NextResponse.json(fees);
   } catch (err: any) {
-    console.error("❌ FEES_GET_ERROR:", err);
-    // Return empty array instead of 500 to prevent frontend crash, but log it
+    console.error("❌ Local JSON FEES_GET_ERROR:", err);
     return NextResponse.json({ error: 'Database connection failed', details: err.message }, { status: 500 });
   }
 }
@@ -81,21 +71,14 @@ export async function POST(request: Request) {
     if (!idsToProcess || !Array.isArray(idsToProcess)) {
       return NextResponse.json({ error: 'Invalid students list' }, { status: 400 });
     }
-
-    console.log(`🚀 FEES_POST: Generating ${idsToProcess.length} vouchers for ${month} ${year}`);
     
-    const studentsSnap = await adminDb.collection('students').get();
+    const students = await readData<any>('students.json');
     const studentsMap = new Map();
-    studentsSnap.forEach(doc => studentsMap.set(parseInt(doc.id), doc.data()));
+    students.forEach((s: any) => studentsMap.set(parseInt(s.id), s));
 
-    const allFeesSnap = await adminDb.collection('fees').get();
-    let maxId = 0;
-    allFeesSnap.forEach(doc => {
-      const id = parseInt(doc.id);
-      if (id > maxId) maxId = id;
-    });
+    const fees = await readData<any>('fees.json');
+    const maxId = await generateId('fees.json') - 1; // Since generateId returns maxId + 1
 
-    const batch = adminDb.batch();
     const newVouchers: any[] = [];
 
     idsToProcess.forEach((sid, index) => {
@@ -129,20 +112,18 @@ export async function POST(request: Request) {
         remainingAnnualCharges: (student.annualCharges || 0) - (student.paidAnnualCharges || 0)
       };
 
-      batch.set(adminDb.collection('fees').doc(newId.toString()), voucher);
+      fees.push(voucher);
       newVouchers.push(voucher);
     });
 
     if (newVouchers.length === 0) {
-      console.log("⚠️ FEES_POST: No vouchers to generate.");
       return NextResponse.json({ success: true, count: 0, message: "No new vouchers needed." });
     }
 
-    await batch.commit();
-    console.log(`✅ FEES_POST: Batch committed successfully for ${newVouchers.length} records.`);
+    await writeData('fees.json', fees);
     return NextResponse.json({ success: true, count: newVouchers.length });
   } catch (err: any) {
-    console.error("❌ FEES_POST_ERROR:", err);
+    console.error("❌ Local JSON FEES_POST_ERROR:", err);
     return NextResponse.json({ error: 'Failed to generate vouchers', details: err.message }, { status: 500 });
   }
 }
@@ -154,14 +135,12 @@ export async function PUT(request: Request) {
 
     if (!id) return NextResponse.json({ error: 'Voucher ID required' }, { status: 400 });
 
-    console.log(`💸 FEES_PUT: Recording payment for voucher ${id}`);
+    const fees = await readData<any>('fees.json');
+    const feeIndex = fees.findIndex((f: any) => f.id.toString() === id.toString());
 
-    const feeRef = adminDb.collection('fees').doc(id.toString());
-    const feeSnap = await feeRef.get();
+    if (feeIndex === -1) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
 
-    if (!feeSnap.exists) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
-
-    const feeData = feeSnap.data()!;
+    const feeData = fees[feeIndex];
     const totalReceived = (parseFloat(paidTuition) || 0) + (parseFloat(paidAC) || 0);
     const totalDue = (feeData.amount || 0) + (feeData.previousArrears || 0) + (feeData.remainingAnnualCharges || 0);
 
@@ -177,23 +156,22 @@ export async function PUT(request: Request) {
       totalReceived: totalReceived
     };
 
-    await feeRef.update(updateData);
+    fees[feeIndex] = { ...fees[feeIndex], ...updateData };
+    await writeData('fees.json', fees);
 
     if (parseFloat(paidAC) > 0 && feeData.studentId) {
-      const studentRef = adminDb.collection('students').doc(feeData.studentId.toString());
-      const studentSnap = await studentRef.get();
-      if (studentSnap.exists) {
-        const currentPaid = studentSnap.data()?.paidAnnualCharges || 0;
-        await studentRef.update({
-          paidAnnualCharges: currentPaid + parseFloat(paidAC)
-        });
+      const students = await readData<any>('students.json');
+      const sIndex = students.findIndex((s: any) => s.id.toString() === feeData.studentId.toString());
+      if (sIndex !== -1) {
+        const currentPaid = students[sIndex].paidAnnualCharges || 0;
+        students[sIndex].paidAnnualCharges = currentPaid + parseFloat(paidAC);
+        await writeData('students.json', students);
       }
     }
 
-    console.log(`✅ FEES_PUT: Payment successful. Status: ${status}`);
     return NextResponse.json({ id, ...updateData });
   } catch (err: any) {
-    console.error("❌ FEES_PUT_ERROR:", err);
+    console.error("❌ Local JSON FEES_PUT_ERROR:", err);
     return NextResponse.json({ error: 'Failed to process payment' }, { status: 500 });
   }
 }
@@ -204,11 +182,13 @@ export async function DELETE(request: Request) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-    console.log(`🗑️ FEES_DELETE: Reversing voucher ${id}`);
-    await adminDb.collection('fees').doc(id).delete();
+    let fees = await readData<any>('fees.json');
+    fees = fees.filter((f: any) => f.id.toString() !== id.toString());
+    await writeData('fees.json', fees);
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("❌ FEES_DELETE_ERROR:", err);
+    console.error("❌ Local JSON FEES_DELETE_ERROR:", err);
     return NextResponse.json({ error: 'Failed to reverse fee' }, { status: 500 });
   }
 }
