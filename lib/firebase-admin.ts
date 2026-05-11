@@ -2,16 +2,27 @@ import admin from 'firebase-admin';
 import path from 'path';
 import fs from 'fs';
 
-if (!admin.apps.length) {
+function initFirebase() {
+  if (admin.apps.length > 0) return;
+
   try {
     if (process.env.FIREBASE_PRIVATE_KEY) {
       console.log("Loading Service Account from individual Environment Variables...");
+      
+      let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+      // Handle both literal newlines and escaped newlines from Vercel
+      if (privateKey.includes('\\n')) {
+        privateKey = privateKey.replace(/\\n/g, '\n');
+      }
+      if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+        privateKey = privateKey.slice(1, -1).replace(/\\n/g, '\n');
+      }
+
       admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          // Handle cases where the private key newlines are escaped as string literal \n
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          privateKey: privateKey,
         })
       });
       console.log("✅ FIREBASE ADMIN: Successfully initialized using individual Environment Variables");
@@ -38,8 +49,16 @@ if (!admin.apps.length) {
     }
   } catch (error: any) {
     console.error("❌ FIREBASE ADMIN INITIALIZATION ERROR:", error.message);
-    console.error(error.stack);
+  }
+
+  // Fallback: If Firebase failed to initialize (e.g. missing env vars during Vercel build phase),
+  // initialize a dummy app so that admin.firestore() doesn't crash the entire build.
+  if (admin.apps.length === 0) {
+    console.warn("⚠️ Initializing dummy Firebase app to prevent build crash.");
+    admin.initializeApp({ projectId: 'dummy-project-for-build' });
   }
 }
+
+initFirebase();
 
 export const adminDb = admin.firestore();
