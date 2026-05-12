@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { readConfig, verifyPassword } from '@/lib/fileHandler';
+import { getConfig } from '@/lib/firestore';
+import { verifyPassword } from '@/lib/fileHandler';
 import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
@@ -11,18 +12,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Password is required' }, { status: 400 });
     }
 
-    const config = await readConfig();
+    const config = await getConfig();
 
     if (verifyPassword(trimmedPassword, config.adminPassword)) {
-      // Set a session cookie
       const cookieStore = await cookies();
       cookieStore.set('school-session', 'authenticated', {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-        // Removed maxAge to make it a session-only cookie
+        sameSite: 'lax',
       });
-
       return NextResponse.json({ success: true });
     } else {
       return NextResponse.json({ error: 'Incorrect Password' }, { status: 401 });
