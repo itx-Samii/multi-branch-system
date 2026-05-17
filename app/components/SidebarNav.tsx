@@ -63,15 +63,15 @@ export default function SidebarNav() {
       <div>
         {/* User Badge */}
         <div style={{
-          background: 'rgba(15, 23, 42, 0.4)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
           padding: '0.85rem',
           borderRadius: '16px',
           marginBottom: '1.5rem',
           display: 'flex',
           alignItems: 'center',
           gap: '0.75rem',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+          boxShadow: 'var(--shadow-card)'
         }}>
           <div style={{
             width: '40px',
@@ -84,16 +84,16 @@ export default function SidebarNav() {
             fontSize: '1.25rem',
             color: 'white',
             fontWeight: 'bold',
-            boxShadow: '0 4px 10px rgba(0, 0, 0, 0.3)'
+            boxShadow: '0 4px 10px rgba(0, 0, 0, 0.2)'
           }}>
             {getRoleIcon(user.role)}
           </div>
           <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'white', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
               {user.displayName}
             </div>
             <div style={{ fontSize: '0.75rem', color: user.role === 'superadmin' ? '#f59e0b' : user.role === 'admin' ? '#c084fc' : '#38bdf8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-              {user.role} • <span style={{ color: '#94a3b8' }}>{(user.schoolId === 'master' ? 'SaaS Master' : (user.schoolId || 'Brook Field')).replace('school_', '').toUpperCase()}</span>
+              {user.role} • <span style={{ color: 'var(--text-muted)' }}>{(user.schoolId === 'master' ? 'SaaS Master' : (user.schoolId || 'Brook Field')).replace('school_', '').toUpperCase()}</span>
             </div>
           </div>
         </div>
@@ -114,9 +114,9 @@ export default function SidebarNav() {
                   borderRadius: '12px',
                   fontWeight: isActive ? 700 : 500,
                   transition: 'all 0.2s',
-                  background: isActive ? 'linear-gradient(90deg, rgba(37, 99, 235, 0.2), rgba(79, 70, 229, 0.1))' : 'transparent',
-                  borderLeft: isActive ? '4px solid #3b82f6' : '4px solid transparent',
-                  color: isActive ? 'white' : '#94a3b8'
+                  background: isActive ? 'var(--primary-light)' : 'transparent',
+                  borderLeft: isActive ? '4px solid var(--primary)' : '4px solid transparent',
+                  color: isActive ? 'var(--primary)' : 'var(--text-muted)'
                 }}
               >
                 <span style={{ fontSize: '1.15rem' }}>{link.icon}</span>
@@ -127,7 +127,7 @@ export default function SidebarNav() {
         </nav>
       </div>
 
-      <div style={{marginTop: '2rem', borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: '1.25rem'}}>
+      <div style={{marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem'}}>
         <button 
           onClick={async () => {
             const res = await fetch('/api/auth/logout', { method: 'POST' });
