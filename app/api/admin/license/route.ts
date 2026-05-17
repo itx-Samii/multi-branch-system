@@ -72,7 +72,7 @@ export async function GET() {
     const features = licenseDoc?.features || (configLic?.value?.features || defaultFeatures);
 
     if (licenseDoc) {
-      return NextResponse.json({
+      const response = NextResponse.json({
         status: finalStatus,
         clientName: licenseDoc.clientName || 'School System',
         key: licenseDoc.licenseKey || 'KEY',
@@ -80,6 +80,8 @@ export async function GET() {
         features: { ...defaultFeatures, ...features },
         lastChecked: new Date().toISOString()
       });
+      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=120');
+      return response;
     }
 
     if (configLic && configLic.value) {

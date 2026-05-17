@@ -14,7 +14,9 @@ export async function GET() {
       studentCount: students.filter((s: any) => s.classId?.toString() === c.id?.toString()).length
     }));
 
-    return NextResponse.json(processedClasses);
+    const response = NextResponse.json(processedClasses);
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    return response;
   } catch (err: any) {
     console.error(`Local JSON Classes GET Error for ${schoolId}:`, err);
     return NextResponse.json({ error: 'Failed to fetch classes', details: err.message }, { status: 500 });

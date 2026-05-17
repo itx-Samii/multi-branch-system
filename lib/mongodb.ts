@@ -17,18 +17,25 @@ if (!uri) {
 let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
 
+const mongoOptions = {
+  maxPoolSize: 50,
+  minPoolSize: 5,
+  maxIdleTimeMS: 30000,
+  serverSelectionTimeoutMS: 15000,
+};
+
 if (process.env.NODE_ENV === 'development') {
   let globalWithMongo = global as typeof globalThis & {
     _mongoClientPromise?: Promise<MongoClient>;
   };
 
   if (!globalWithMongo._mongoClientPromise) {
-    client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000 });
+    client = new MongoClient(uri, mongoOptions);
     globalWithMongo._mongoClientPromise = client.connect();
   }
   clientPromise = globalWithMongo._mongoClientPromise;
 } else {
-  client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000 });
+  client = new MongoClient(uri, mongoOptions);
   clientPromise = client.connect();
 }
 
