@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getCollection, addDoc, setDoc, deleteDoc, generateId } from '@/lib/firestore';
+import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get('studentId');
@@ -12,41 +13,57 @@ export async function GET(request: Request) {
     const month = searchParams.get('month');
     const year = searchParams.get('year');
     const search = searchParams.get('search')?.toLowerCase();
-    const limit = parseInt(searchParams.get('limit') || '100');
+    const limit = parseInt(searchParams.get('limit') || '10000');
 
-    let fees = await getCollection('fees');
+    let fees = await readData<any>('fees.json', schoolId);
+    const students = await readData<any>('students.json', schoolId);
+    const classes = await readData<any>('classes.json', schoolId);
+    const studentsMap = new Map<string, any>();
+    students.forEach((s: any) => studentsMap.set(s.id?.toString(), s));
+    const classesMap = new Map<string, any>();
+    classes.forEach((c: any) => classesMap.set(c.id?.toString(), c));
 
-    if (studentId) fees = fees.filter((f: any) => f.studentId === parseInt(studentId));
-
-    if (classId && classId !== 'all') {
-      if (!isNaN(Number(classId))) {
-        fees = fees.filter((f: any) => f.classId === parseInt(classId));
-      } else {
-        fees = fees.filter((f: any) => f.className === classId);
+    fees = fees.map((f: any) => {
+      if (!f.studentName && f.studentId) {
+        const student = studentsMap.get(f.studentId?.toString());
+        if (student) {
+          const cls = classesMap.get(student.classId?.toString());
+          f.studentName = student.name;
+          f.fatherName = student.fatherName;
+          f.admissionNumber = student.admissionNumber;
+          f.className = cls ? `${cls.name}${cls.section ? ' - ' + cls.section : ''}` : `Class ${student.classId}`;
+          f.classId = student.classId?.toString();
+        }
       }
-    }
+      return f;
+    });
 
+    if (studentId) fees = fees.filter((f: any) => f.studentId?.toString() === studentId.toString());
+    
+    if (classId && classId !== 'all') {
+        fees = fees.filter((f: any) => f.classId?.toString() === classId.toString());
+    }
+    
     if (status && status !== 'all') fees = fees.filter((f: any) => f.status === status);
     if (month && month !== 'all') fees = fees.filter((f: any) => f.month === month);
     if (year && year !== 'all') fees = fees.filter((f: any) => f.year === year);
 
     if (search) {
-      fees = fees.filter((f: any) => {
-        try {
-          const sName = (f.studentName || '').toString().toLowerCase();
-          const fName = (f.fatherName || '').toString().toLowerCase();
-          const admNo = (f.admissionNumber || '').toString().toLowerCase();
-          const vId = (f.id || '').toString().toLowerCase();
-          return (
-            sName.includes(search) ||
-            fName.includes(search) ||
-            admNo.includes(search) ||
-            vId === search
-          );
-        } catch {
-          return false;
-        }
-      });
+        fees = fees.filter((f: any) => {
+            try {
+                const sName = (f.studentName || "").toString().toLowerCase();
+                const fName = (f.fatherName || "").toString().toLowerCase();
+                const admNo = (f.admissionNumber || "").toString().toLowerCase();
+                const vId = (f.id || "").toString().toLowerCase();
+                
+                return sName.includes(search) || 
+                       fName.includes(search) || 
+                       admNo.includes(search) || 
+                       vId === search;
+            } catch (e) {
+                return false;
+            }
+        });
     }
 
     if (fees.length > limit) {
@@ -55,50 +72,67 @@ export async function GET(request: Request) {
 
     return NextResponse.json(fees);
   } catch (err: any) {
-    console.error('❌ Firestore FEES_GET_ERROR:', err);
-    return NextResponse.json(
-      { error: 'Database connection failed', details: err.message },
-      { status: 500 }
-    );
+    console.error(`❌ Local JSON FEES_GET_ERROR for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Database connection failed', details: err.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
-    const { studentIds, month, year } = body;
+    const { studentIds, month, year, classId: filterClassId } = body;
 
-    const idsToProcess = studentIds || (body.studentId ? [body.studentId] : null);
-
+    let idsToProcess = studentIds || (body.studentId ? [body.studentId] : null);
+    
     if (!idsToProcess || !Array.isArray(idsToProcess)) {
-      return NextResponse.json({ error: 'Invalid students list' }, { status: 400 });
+      const allStudents = await readData<any>('students.json', schoolId);
+      idsToProcess = allStudents.map((s: any) => s.id);
     }
-
-    const students = await getCollection('students');
+    
+    const students = await readData<any>('students.json', schoolId);
     const studentsMap = new Map();
-    students.forEach((s: any) => studentsMap.set(parseInt(s.id), s));
+    students.forEach((s: any) => studentsMap.set(s.id?.toString(), s));
 
-    const nextId = await generateId('fees');
+    const classes = await readData<any>('classes.json', schoolId);
+    const classesMap = new Map();
+    classes.forEach((c: any) => classesMap.set(c.id?.toString(), c));
+
+    const fees = await readData<any>('fees.json', schoolId);
+    const maxId = (await generateId('fees.json', schoolId)) - 1;
+
     const newVouchers: any[] = [];
 
-    for (let index = 0; index < idsToProcess.length; index++) {
-      const sid = idsToProcess[index];
-      const student = studentsMap.get(parseInt(sid));
-      if (!student) continue;
+    idsToProcess.forEach((sid: any) => {
+      const student = studentsMap.get(sid?.toString());
+      if (!student) return;
 
-      const newId = nextId + index;
+      const exists = fees.some((f: any) =>
+        f.studentId?.toString() === sid?.toString() &&
+        f.month === (month || "Unknown") &&
+        f.year === (year || new Date().getFullYear().toString())
+      );
+      if (exists) return;
+
+      const newId = maxId + newVouchers.length + 1;
       const baseAmount = student.monthlyFee || 0;
       const discount = student.discount || 0;
+      
+      const classObj = classesMap.get(student.classId?.toString());
+      const resolvedClassName = classObj
+        ? `${classObj.name}${classObj.section ? ' - ' + classObj.section : ''}`
+        : `Class ${student.classId}`;
 
       const voucher = {
         id: newId,
-        studentId: parseInt(sid),
+        studentId: sid?.toString(),
+        schoolId,
         studentName: student.name,
         fatherName: student.fatherName,
         admissionNumber: student.admissionNumber,
-        className: student.className || `Class ${student.classId}`,
-        classId: parseInt(student.classId),
-        month: month || 'Unknown',
+        className: resolvedClassName,
+        classId: student.classId?.toString(),
+        month: month || "Unknown",
         year: year || new Date().getFullYear().toString(),
         amount: Math.max(0, baseAmount - discount),
         baseAmount,
@@ -110,52 +144,48 @@ export async function POST(request: Request) {
         paidTuition: 0,
         paidAC: 0,
         previousArrears: 0,
-        remainingAnnualCharges:
-          (student.annualCharges || 0) - (student.paidAnnualCharges || 0),
+        remainingAnnualCharges: (student.annualCharges || 0) - (student.paidAnnualCharges || 0)
       };
 
-      await addDoc('fees', voucher);
+      fees.push(voucher);
       newVouchers.push(voucher);
-    }
+    });
 
     if (newVouchers.length === 0) {
-      return NextResponse.json({
-        success: true,
-        count: 0,
-        message: 'No new vouchers needed.',
-      });
+      return NextResponse.json({ success: true, count: 0, message: "No new vouchers needed." });
     }
 
+    await writeData('fees.json', fees, schoolId);
     return NextResponse.json({ success: true, count: newVouchers.length });
   } catch (err: any) {
-    console.error('❌ Firestore FEES_POST_ERROR:', err);
-    return NextResponse.json(
-      { error: 'Failed to generate vouchers', details: err.message },
-      { status: 500 }
-    );
+    console.error(`❌ Local JSON FEES_POST_ERROR for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to generate vouchers', details: err.message }, { status: 500 });
   }
 }
 
 export async function PUT(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
     const { id, paidTuition, paidAC } = body;
 
-    if (!id)
-      return NextResponse.json({ error: 'Voucher ID required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'Voucher ID required' }, { status: 400 });
 
-    const fees = await getCollection('fees');
-    const feeData = fees.find((f: any) => f.id.toString() === id.toString());
+    const fees = await readData<any>('fees.json', schoolId);
+    const feeIndex = fees.findIndex((f: any) => f.id.toString() === id.toString());
 
-    if (!feeData)
-      return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
+    if (feeIndex === -1) return NextResponse.json({ error: 'Voucher not found' }, { status: 404 });
 
-    const totalReceived =
-      (parseFloat(paidTuition) || 0) + (parseFloat(paidAC) || 0);
-    const totalDue =
-      (feeData.amount || 0) +
-      (feeData.previousArrears || 0) +
-      (feeData.remainingAnnualCharges || 0);
+    const feeData = fees[feeIndex];
+    
+    const newPaidTuition = parseFloat(paidTuition) || 0;
+    const newPaidAC = parseFloat(paidAC) || 0;
+    
+    const updatedPaidTuition = (feeData.paidTuition || 0) + newPaidTuition;
+    const updatedPaidAC = (feeData.paidAC || 0) + newPaidAC;
+    const totalReceived = updatedPaidTuition + updatedPaidAC;
+
+    const totalDue = (feeData.amount || 0) + (feeData.previousArrears || 0) + (feeData.remainingAnnualCharges || 0);
 
     let status = 'Unpaid';
     if (totalReceived >= totalDue) status = 'Paid';
@@ -164,46 +194,45 @@ export async function PUT(request: Request) {
     const updateData = {
       status,
       paymentDate: new Date().toISOString(),
-      paidTuition: parseFloat(paidTuition) || 0,
-      paidAC: parseFloat(paidAC) || 0,
-      totalReceived,
+      paidTuition: updatedPaidTuition,
+      paidAC: updatedPaidAC,
+      totalReceived: totalReceived
     };
 
-    await setDoc('fees', id, { ...feeData, ...updateData });
+    fees[feeIndex] = { ...fees[feeIndex], ...updateData };
+    await writeData('fees.json', fees, schoolId);
 
-    // Update paidAnnualCharges on the student record if AC was paid
     if (parseFloat(paidAC) > 0 && feeData.studentId) {
-      const students = await getCollection('students');
-      const student = students.find(
-        (s: any) => s.id.toString() === feeData.studentId.toString()
-      );
-      if (student) {
-        const currentPaid = student.paidAnnualCharges || 0;
-        await setDoc('students', feeData.studentId, {
-          ...student,
-          paidAnnualCharges: currentPaid + parseFloat(paidAC),
-        });
+      const students = await readData<any>('students.json', schoolId);
+      const sIndex = students.findIndex((s: any) => s.id.toString() === feeData.studentId.toString());
+      if (sIndex !== -1) {
+        const currentPaid = students[sIndex].paidAnnualCharges || 0;
+        students[sIndex].paidAnnualCharges = currentPaid + parseFloat(paidAC);
+        await writeData('students.json', students, schoolId);
       }
     }
 
     return NextResponse.json({ id, ...updateData });
   } catch (err: any) {
-    console.error('❌ Firestore FEES_PUT_ERROR:', err);
+    console.error(`❌ Local JSON FEES_PUT_ERROR for ${schoolId}:`, err);
     return NextResponse.json({ error: 'Failed to process payment' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    if (!id)
-      return NextResponse.json({ error: 'ID required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-    await deleteDoc('fees', id);
+    let fees = await readData<any>('fees.json', schoolId);
+    fees = fees.filter((f: any) => f.id.toString() !== id.toString());
+    await writeData('fees.json', fees, schoolId);
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error('❌ Firestore FEES_DELETE_ERROR:', err);
+    console.error(`❌ Local JSON FEES_DELETE_ERROR for ${schoolId}:`, err);
     return NextResponse.json({ error: 'Failed to reverse fee' }, { status: 500 });
   }
 }

@@ -3,14 +3,13 @@
     "id": 1,
     "name": "Zain ul Abideen",
     "fatherName": "Muhammad Waseem",
-    "classId": "2",
+    "classId": "1",
     "monthlyFee": 2800,
     "discount": 0,
     "annualCharges": 0,
     "paidAnnualCharges": 0,
     "status": "Active",
-    "createdAt": "2026-04-29T03:44:23.514Z",
-    "updatedAt": "2026-05-05T05:46:36.553Z"
+    "createdAt": "2026-04-29T03:44:23.514Z"
   },
   {
     "id": 2,
@@ -1055,12 +1054,11 @@
     "fatherName": "Chan Pervaiz",
     "classId": "4",
     "monthlyFee": 3000,
-    "discount": 0,
+    "discount": 3000,
     "annualCharges": 0,
     "paidAnnualCharges": 0,
     "status": "Active",
-    "createdAt": "2026-04-29T04:42:12.820Z",
-    "updatedAt": "2026-05-05T07:35:15.250Z"
+    "createdAt": "2026-04-29T04:42:12.820Z"
   },
   {
     "id": 89,

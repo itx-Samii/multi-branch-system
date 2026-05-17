@@ -45,3 +45,4 @@ serviceAccountKey.json
 
 # Local scripts
 *.js
+lint_errors.txt

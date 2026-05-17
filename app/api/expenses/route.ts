@@ -1,48 +1,55 @@
 import { NextResponse } from 'next/server';
-import { getCollection, addDoc, deleteDoc, generateId } from '@/lib/firestore';
+import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const schoolId = await getTenantId();
   try {
-    let expenses = await getCollection('expenses');
-    expenses.sort(
-      (a: any, b: any) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    let expenses = await readData<any>('expenses.json', schoolId);
+    if (!Array.isArray(expenses)) expenses = [];
+    expenses.sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     return NextResponse.json(expenses);
   } catch (err: any) {
-    console.error('Firestore Expenses GET Error:', err);
-    return NextResponse.json({ error: 'Failed to fetch expenses' }, { status: 500 });
+    console.error(`Local JSON Expenses GET Error for ${schoolId}:`, err);
+    return NextResponse.json([]);
   }
 }
 
 export async function POST(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
+    
+    const expenses = await readData<any>('expenses.json', schoolId);
+    const newId = await generateId('expenses.json', schoolId);
 
-    const newId = await generateId('expenses');
-    const newExpense = { ...body, id: newId };
+    const newExpense = { ...body, id: newId, schoolId };
+    
+    expenses.push(newExpense);
+    await writeData('expenses.json', expenses, schoolId);
 
-    await addDoc('expenses', newExpense);
     return NextResponse.json(newExpense);
   } catch (err: any) {
-    console.error('Firestore Expenses POST Error:', err);
+    console.error(`Local JSON Expenses POST Error for ${schoolId}:`, err);
     return NextResponse.json({ error: 'Failed to create expense' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    if (!id)
-      return NextResponse.json({ error: 'ID required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-    await deleteDoc('expenses', id);
+    let expenses = await readData<any>('expenses.json', schoolId);
+    expenses = expenses.filter((e: any) => e.id.toString() !== id.toString());
+    await writeData('expenses.json', expenses, schoolId);
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error('Firestore Expenses DELETE Error:', err);
+    console.error(`Local JSON Expenses DELETE Error for ${schoolId}:`, err);
     return NextResponse.json({ error: 'Failed to delete expense' }, { status: 500 });
   }
 }

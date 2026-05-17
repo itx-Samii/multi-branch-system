@@ -1,88 +1,92 @@
 import { NextResponse } from 'next/server';
-import { getCollection, addDoc, setDoc, deleteDoc, generateId } from '@/lib/firestore';
+import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const schoolId = await getTenantId();
   try {
-    const classes = await getCollection('classes');
+    const classes = await readData<any>('classes.json', schoolId);
+    const students = await readData<any>('students.json', schoolId);
+
     const processedClasses = classes.map((c: any) => ({
       ...c,
-      studentCount: 0,
+      studentCount: students.filter((s: any) => s.classId?.toString() === c.id?.toString()).length
     }));
+
     return NextResponse.json(processedClasses);
   } catch (err: any) {
-    console.error('Firestore Classes GET Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to fetch classes', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON Classes GET Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to fetch classes', details: err.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
     const { name, section, monthlyFee, annualCharges } = body;
 
-    const newId = await generateId('classes');
+    const classes = await readData<any>('classes.json', schoolId);
+    const newId = await generateId('classes.json', schoolId);
+
     const newClass = {
       id: newId,
+      schoolId,
       name,
       section,
       monthlyFee: parseFloat(monthlyFee),
-      annualCharges: parseFloat(annualCharges || 0),
+      annualCharges: parseFloat(annualCharges || 0)
     };
 
-    await addDoc('classes', newClass);
+    classes.push(newClass);
+    await writeData('classes.json', classes, schoolId);
+
     return NextResponse.json(newClass);
   } catch (err: any) {
-    console.error('Firestore Classes POST Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to create class', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON Classes POST Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to create class', details: err.message }, { status: 500 });
   }
 }
 
 export async function PUT(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
     const { id, ...updateData } = body;
-    if (!id)
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    const classes = await getCollection('classes');
-    const existing = classes.find((c: any) => c.id.toString() === id.toString());
-
-    if (!existing)
+    const classes = await readData<any>('classes.json', schoolId);
+    const classIndex = classes.findIndex((c: any) => c.id.toString() === id.toString());
+    
+    if (classIndex === -1) {
       return NextResponse.json({ error: 'Class not found' }, { status: 404 });
+    }
 
-    await setDoc('classes', id, { ...existing, ...updateData });
+    classes[classIndex] = { ...classes[classIndex], ...updateData };
+    await writeData('classes.json', classes, schoolId);
+
     return NextResponse.json({ id, ...updateData });
   } catch (err: any) {
-    console.error('Firestore Classes PUT Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to update class', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON Classes PUT Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to update class', details: err.message }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    if (!id)
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    await deleteDoc('classes', id);
+    let classes = await readData<any>('classes.json', schoolId);
+    classes = classes.filter((c: any) => c.id.toString() !== id.toString());
+    await writeData('classes.json', classes, schoolId);
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error('Firestore Classes DELETE Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to delete class', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON Classes DELETE Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to delete class', details: err.message }, { status: 500 });
   }
 }

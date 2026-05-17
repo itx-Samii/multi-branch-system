@@ -110,11 +110,11 @@ export default function Dashboard() {
       amount: e.amount,
       date: e.date,
     })),
-    ...data.salaries.filter((s: any) => s.status === 'Paid').map((s: any) => ({
+    ...data.salaries.map((s: any) => ({
       id: `sal-${s.id}`,
       type: 'EXPENSE',
       category: 'Salary',
-      title: s.staffName || 'Staff Salary',
+      title: s.staffName || `Staff ID: ${s.staffId}`,
       amount: s.amount,
       date: s.paymentDate,
     }))
@@ -215,7 +215,7 @@ export default function Dashboard() {
               </tr>
             ) : (
                unifiedLogs.map((log, idx) => (
-                 <tr key={log.id}>
+                 <tr key={`log_${log.id}_${idx}_${log.type}`}>
                    <td style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>{idx + 1}.</td>
                    <td style={{fontWeight: 'bold'}}>
                       {log.title}

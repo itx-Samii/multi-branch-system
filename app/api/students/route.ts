@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getCollection, addDoc, setDoc, deleteDoc, deleteWhere, generateId } from '@/lib/firestore';
+import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
+import { getDatabase } from '@/lib/mongodb';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
@@ -11,156 +13,161 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')?.toLowerCase() || '';
     const classId = searchParams.get('classId') || 'all';
 
-    const [allStudents, allClasses] = await Promise.all([
-      getCollection('students'),
-      getCollection('classes'),
-    ]);
+    const allStudents = await readData<any>('students.json', schoolId);
+    const allClasses = await readData<any>('classes.json', schoolId);
 
     let filtered = allStudents.filter((s: any) => {
-      const nameMatch =
-        (s.name?.toLowerCase() || '').includes(search) ||
-        (s.fatherName?.toLowerCase() || '').includes(search) ||
-        (s.admissionNumber?.toLowerCase() || '').includes(search);
-      const classMatch =
-        classId === 'all' || s.classId?.toString() === classId.toString();
-      return nameMatch && classMatch;
+      const nameMatch = (s.name?.toLowerCase() || "").includes(search) || 
+                       (s.fatherName?.toLowerCase() || "").includes(search) ||
+                       (s.admissionNumber?.toLowerCase() || "").includes(search);
+      if (classId && classId !== 'all') {
+        return nameMatch && s.classId?.toString() === classId.toString();
+      }
+      return nameMatch;
     });
 
     const total = filtered.length;
-    const start = (page - 1) * limit;
-    const end = start + limit;
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedStudents = filtered.slice(startIndex, endIndex);
 
-    const paginated = filtered.slice(start, end).map((s: any) => {
-      const dbClass = allClasses.find(
-        (c: any) => c.id.toString() === s.classId?.toString()
-      );
-      return {
-        ...s,
-        className: dbClass
-          ? `${dbClass.name}${dbClass.section ? ` - ${dbClass.section}` : ''}`
-          : s.classId || 'N/A',
-      };
+    const enriched = paginatedStudents.map((student: any) => {
+      const studentClass = allClasses.find((c: any) => c.id.toString() === student.classId?.toString());
+      return { ...student, className: studentClass ? studentClass.name : 'Unassigned' };
     });
 
-    return NextResponse.json({
-      students: paginated,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    });
+    const totalPages = Math.ceil(total / limit) || 1;
+    return NextResponse.json({ total, page, limit, totalPages, students: enriched, data: enriched });
   } catch (err: any) {
-    console.error('Firestore GET Students Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to fetch students', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON GET Students Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to fetch students', details: err.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
+    
+    const students = await readData<any>('students.json', schoolId);
 
-    const newId = await generateId('students');
-    const newStudent = {
-      ...body,
+    const db = await getDatabase();
+    const license = await db.collection('licenses').findOne({ $or: [{ schoolId }, { id: schoolId }] });
+    const maxStudents = license?.maxStudents || 1000;
+
+    if (students.length >= maxStudents) {
+      return NextResponse.json({ error: `Student capacity reached (${maxStudents} max limit). Please contact Super Admin to upgrade your SaaS license.` }, { status: 403 });
+    }
+    
+    const newId = await generateId('students.json', schoolId);
+    
+    const newStudent = { 
+      ...body, 
       id: newId,
+      schoolId,
+      monthlyFee: parseFloat(body.monthlyFee || '0'),
+      annualCharges: parseFloat(body.annualCharges || '0'),
+      discount: parseFloat(body.discount || '0'),
       createdAt: new Date().toISOString(),
-      paidAnnualCharges: 0,
+      paidAnnualCharges: 0 
     };
 
-    await addDoc('students', newStudent);
+    students.push(newStudent);
+    await writeData('students.json', students, schoolId);
+
     return NextResponse.json(newStudent);
   } catch (err: any) {
-    console.error('Firestore POST Student Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to create student', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON POST Student Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to create student', details: err.message }, { status: 500 });
   }
 }
 
 export async function PUT(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const body = await request.json();
     const { id, ...updateData } = body;
-    if (!id)
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    const allStudents = await getCollection('students');
-    const student = allStudents.find((s: any) => s.id.toString() === id.toString());
-
-    if (!student)
+    const students = await readData<any>('students.json', schoolId);
+    const sIndex = students.findIndex((s: any) => s.id.toString() === id.toString());
+    
+    if (sIndex === -1) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+    }
 
-    const cleanUpdateData: Record<string, any> = {
+    const cleanUpdateData = {
       name: updateData.name,
       fatherName: updateData.fatherName,
-      monthlyFee: updateData.monthlyFee,
-      discount: updateData.discount,
+      monthlyFee: updateData.monthlyFee !== undefined ? parseFloat(updateData.monthlyFee) : undefined,
+      discount: updateData.discount !== undefined ? parseFloat(updateData.discount) : undefined,
       admissionNumber: updateData.admissionNumber,
-      annualCharges: updateData.annualCharges,
-      updatedAt: new Date().toISOString(),
+      annualCharges: updateData.annualCharges !== undefined ? parseFloat(updateData.annualCharges) : undefined,
+      paidAnnualCharges: updateData.paidAnnualCharges !== undefined ? parseFloat(updateData.paidAnnualCharges) : undefined,
+      updatedAt: new Date().toISOString()
     };
 
-    Object.keys(cleanUpdateData).forEach((key) => {
-      if (cleanUpdateData[key] === undefined) delete cleanUpdateData[key];
+    Object.keys(cleanUpdateData).forEach(key => {
+      if ((cleanUpdateData as any)[key] === undefined) {
+        delete (cleanUpdateData as any)[key];
+      }
     });
+    
+    students[sIndex] = { ...students[sIndex], ...cleanUpdateData };
+    await writeData('students.json', students, schoolId);
 
-    await setDoc('students', id, { ...student, ...cleanUpdateData });
-
-    // Sync unpaid fee vouchers if financial/personal fields changed
     const syncFields = ['monthlyFee', 'discount', 'annualCharges', 'name', 'fatherName', 'admissionNumber'];
-    const changed = syncFields.some((f) => updateData[f] !== undefined);
-
+    const changed = syncFields.some(f => updateData[f] !== undefined);
+    
     if (changed) {
-      const fees = await getCollection('fees');
-      const toUpdate = fees.filter(
-        (f: any) => f.studentId?.toString() === id.toString() && f.status !== 'Paid'
-      );
+      const fees = await readData<any>('fees.json', schoolId);
+      let feesModified = false;
 
-      for (const fee of toUpdate) {
-        const updatedFee: Record<string, any> = { ...fee };
-        if (updateData.monthlyFee !== undefined || updateData.discount !== undefined) {
-          updatedFee.baseAmount = updateData.monthlyFee ?? fee.baseAmount;
-          updatedFee.discount = updateData.discount ?? fee.discount;
-          updatedFee.amount = Math.max(0, updatedFee.baseAmount - updatedFee.discount);
+      for (let i = 0; i < fees.length; i++) {
+        if (fees[i].studentId?.toString() === id.toString() && fees[i].status !== 'Paid') {
+          if (updateData.monthlyFee !== undefined || updateData.discount !== undefined) {
+            fees[i].baseAmount = updateData.monthlyFee ?? fees[i].baseAmount;
+            fees[i].discount = updateData.discount ?? fees[i].discount;
+            fees[i].amount = Math.max(0, fees[i].baseAmount - fees[i].discount);
+          }
+          if (updateData.name !== undefined) fees[i].studentName = updateData.name;
+          if (updateData.fatherName !== undefined) fees[i].fatherName = updateData.fatherName;
+          if (updateData.admissionNumber !== undefined) fees[i].admissionNumber = updateData.admissionNumber;
+          
+          feesModified = true;
         }
-        if (updateData.name !== undefined) updatedFee.studentName = updateData.name;
-        if (updateData.fatherName !== undefined) updatedFee.fatherName = updateData.fatherName;
-        if (updateData.admissionNumber !== undefined) updatedFee.admissionNumber = updateData.admissionNumber;
-        await setDoc('fees', fee.id, updatedFee);
+      }
+
+      if (feesModified) {
+        await writeData('fees.json', fees, schoolId);
       }
     }
 
     return NextResponse.json({ id, ...cleanUpdateData });
   } catch (err: any) {
-    console.error('Firestore PUT Student Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to update student', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON PUT Student Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to update student', details: err.message }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
+  const schoolId = await getTenantId();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    if (!id)
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
-    await Promise.all([
-      deleteDoc('students', id),
-      deleteWhere('fees', 'studentId', parseInt(id)),
-    ]);
+    let students = await readData<any>('students.json', schoolId);
+    students = students.filter((s: any) => s.id.toString() !== id.toString());
+    await writeData('students.json', students, schoolId);
+
+    let fees = await readData<any>('fees.json', schoolId);
+    fees = fees.filter((f: any) => f.studentId?.toString() !== id.toString());
+    await writeData('fees.json', fees, schoolId);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error('Firestore DELETE Student Error:', err);
-    return NextResponse.json(
-      { error: 'Failed to delete student', details: err.message },
-      { status: 500 }
-    );
+    console.error(`Local JSON DELETE Student Error for ${schoolId}:`, err);
+    return NextResponse.json({ error: 'Failed to delete student', details: err.message }, { status: 500 });
   }
 }

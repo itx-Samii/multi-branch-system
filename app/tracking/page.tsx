@@ -34,6 +34,7 @@ export default function ClassWiseTracking() {
   const [schoolAddress, setSchoolAddress] = useState('Rawalpindi, Pakistan');
   const [logo, setLogo] = useState('');
   const [printTargetId, setPrintTargetId] = useState<number | null>(null);
+  const [printTargetRecord, setPrintTargetRecord] = useState<any | null>(null);
 
   // Professional Branding States
   const [bankName, setBankName] = useState('Meezan Bank Limited');
@@ -53,7 +54,7 @@ export default function ClassWiseTracking() {
   const [isSaving, setIsSaving] = useState(false);
 
   const fetchTracking = async () => {
-    if (!classId) return;
+    if (!classId) return [];
     setLoading(true);
     try {
       const [feesRes, studentsRes] = await Promise.all([
@@ -68,9 +69,10 @@ export default function ClassWiseTracking() {
       const studentsOfClass = studentData.students || [];
       
       const merged = studentsOfClass.map((student: any) => {
-        const feeRecord = fees.find((f: any) => f.studentId === student.id);
+        // FIX: Use toString() on both sides — fees.studentId is number, student.id is string
+        const feeRecord = fees.find((f: any) => f.studentId?.toString() === student.id?.toString());
         return {
-          ...student, // Keep all student fields for editing
+          ...student,
           studentName: student.name,
           fatherName: student.fatherName,
           amount: feeRecord ? feeRecord.amount : student.monthlyFee - (student.discount || 0),
@@ -83,7 +85,9 @@ export default function ClassWiseTracking() {
           year: feeRecord ? feeRecord.year : year,
           previousArrears: feeRecord ? (feeRecord.previousArrears || 0) : 0,
           paidTuition: feeRecord ? (feeRecord.paidTuition || 0) : 0,
-          remainingAnnualCharges: feeRecord ? feeRecord.remainingAnnualCharges : (student.annualCharges - (student.paidAnnualCharges || 0))
+          remainingAnnualCharges: feeRecord
+            ? feeRecord.remainingAnnualCharges
+            : (student.annualCharges || 0) - (student.paidAnnualCharges || 0)
         };
       });
 
@@ -137,45 +141,55 @@ export default function ClassWiseTracking() {
   }, [month, year, classId]);
 
   const handlePrintAction = async (student: any) => {
-    // Always re-fetch to ensure we have the absolute latest data (AC Balance, etc.) before printing
-    const latestData = await fetchTracking();
-    
-    // Find the updated student record from the fresh fetching results
-    let target = latestData.find((d: any) => d.id === student.id);
-    
-    // If voucher not generated, generate it now
-    if (!target?.voucherId) {
-      setLoading(true);
-      try {
+    setLoading(true);
+    try {
+      // Always re-fetch to ensure we have the absolute latest data before printing
+      const latestData = await fetchTracking();
+      let target = latestData.find((d: any) => d.id?.toString() === student.id?.toString());
+
+      // If voucher not generated, generate it now
+      if (!target?.voucherId) {
         const res = await fetch('/api/fees', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            month, 
-            year,
-            studentIds: [student.id]
-          })
+          body: JSON.stringify({ month, year, studentIds: [student.id] })
         });
-        if (res.ok) {
-          // Re-fetch again to get the new voucher ID after creation
-          const refreshedData = await fetchTracking();
-          target = refreshedData.find((d: any) => d.id === student.id);
+        if (!res.ok) {
+          alert('Failed to generate voucher. Please try again.');
+          return;
         }
-      } catch (err) {
-        alert("Failed to auto-generate voucher");
-        setLoading(false);
+        // Re-fetch to get the new voucher ID
+        const refreshedData = await fetchTracking();
+        target = refreshedData.find((d: any) => d.id?.toString() === student.id?.toString());
+      }
+
+      if (!target?.voucherId) {
+        alert('Could not resolve voucher. Please refresh and try again.');
         return;
       }
-      setLoading(false);
-    }
 
-    if (target?.voucherId) {
-      setPrintTargetId(target.voucherId);
-      // Wait for React to render the print section with the setPrintTargetId
+      // Enrich with className from classes list (avoid stale class names)
+      const classObj = classes.find((c: any) => c.id?.toString() === target.classId?.toString());
+      const resolvedTarget = {
+        ...target,
+        className: classObj ? `${classObj.name}${classObj.section ? ' - ' + classObj.section : ''}` : target.className || `Class ${target.classId}`
+      };
+
+      // Store the RECORD DIRECTLY — no filtering needed, avoids stale-state race condition
+      setPrintTargetRecord(resolvedTarget);
+      setPrintTargetId(resolvedTarget.voucherId);
+
+      // Give React 400ms to render the print section, then print
       setTimeout(() => {
         window.print();
         setPrintTargetId(null);
-      }, 300);
+        setPrintTargetRecord(null);
+      }, 400);
+    } catch (err: any) {
+      console.error('Print challan error:', err);
+      alert(`Print failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -499,15 +513,14 @@ export default function ClassWiseTracking() {
       )}
 
       <div className="print-only">
-        {trackingData.filter(d => d.voucherId === printTargetId).map(f => {
+        {printTargetRecord && (() => {
+          const f = printTargetRecord;
           const totalAmount = Number(f.amount) + Number(f.remainingAnnualCharges || 0) + Number(f.previousArrears || 0);
-          const qrData = `ID:${f.voucherId}|ADM:${f.admissionNumber}|NAME:${f.studentName}|TOTAL:${totalAmount}`;
-          const qrURL = `https://chart.googleapis.com/chart?chs=100x100&cht=qr&chl=${encodeURIComponent(qrData)}`;
           const validDate = new Date();
           validDate.setDate(validDate.getDate() + validUntilDays);
 
           return (
-            <div key={f.id} className="voucher-card">
+            <div className="voucher-card">
               {['Bank Copy', 'Student Copy', 'Information'].map((section, sectionIdx) => (
                 <div key={section} className="voucher-copy" style={{
                   borderRight: sectionIdx < 2 ? '1px solid #000' : 'none',
@@ -594,7 +607,7 @@ export default function ClassWiseTracking() {
               ))}
             </div>
           );
-        })}
+        })()}
       </div>
 
     </div>

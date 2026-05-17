@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
-import { writeData, clearCache } from '@/lib/fileHandler';
-import fs from 'fs/promises';
-import path from 'path';
-
-const DATA_DIR = path.join(process.cwd(), 'data');
+import { writeData, writeConfig, clearCache } from '@/lib/dbHandler';
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +12,7 @@ export async function POST(request: Request) {
     // 1. Clear current cache
     clearCache();
 
-    // 2. Restore individual files
+    // 2. Restore individual collections
     const fileKeys = Object.keys(backup.data);
     for (const key of fileKeys) {
       const fileName = `${key}.json`;
@@ -26,8 +22,7 @@ export async function POST(request: Request) {
 
     // 3. Restore config if present
     if (backup.config) {
-      const configPath = path.join(DATA_DIR, 'config.json');
-      await fs.writeFile(configPath, JSON.stringify(backup.config, null, 2), 'utf8');
+      await writeConfig(backup.config);
     }
 
     return NextResponse.json({ success: true, message: 'System restored successfully' });

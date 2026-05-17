@@ -378,7 +378,7 @@ export default function GenerateFees() {
           </div>
 
           <div className="print-container print-only">
-            {(printTargetId === -1 ? filteredFees : (printTargetId ? filteredFees.filter(f => f.id === printTargetId) : [])).map(f => {
+            {(printTargetId === -1 ? filteredFees : (printTargetId ? filteredFees.filter(f => f.id?.toString() === printTargetId?.toString()) : [])).map(f => {
               const totalAmount = Number(f.amount) + Number(f.remainingAnnualCharges || 0) + Number(f.previousArrears || 0);
               const qrData = `ID:${f.id}|ADM:${f.admissionNumber}|NAME:${f.studentName}|TOTAL:${totalAmount}`;
               const qrURL = `https://chart.googleapis.com/chart?chs=100x100&cht=qr&chl=${encodeURIComponent(qrData)}`;

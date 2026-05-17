@@ -25,7 +25,7 @@ export default function CollectionReports() {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/fees`, { cache: 'no-store' });
+      const res = await fetch(`/api/fees?limit=5000`, { cache: 'no-store' });
       const data = await res.json();
       setFees(data || []);
     } catch {

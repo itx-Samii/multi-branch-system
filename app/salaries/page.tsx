@@ -40,8 +40,8 @@ export default function SalaryManagement() {
       ]);
       const s = await sRes.json();
       const h = await hRes.json();
-      setStaff(s || []);
-      setHistory(h || []);
+      setStaff(Array.isArray(s) ? s : []);
+      setHistory(Array.isArray(h) ? h : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -155,7 +155,7 @@ export default function SalaryManagement() {
     }
   };
 
-  const isPaid = (staffId: number) => history.some(h => h.staffId === staffId);
+  const isPaid = (staffId: any) => history.some(h => h.staffId?.toString() === staffId?.toString());
 
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
@@ -301,7 +301,7 @@ export default function SalaryManagement() {
                       })
                       .map((s, idx) => {
                         const paid = isPaid(s.id);
-                        const paymentInfo = history.find(h => h.staffId === s.id);
+                        const paymentInfo = history.find(h => h.staffId?.toString() === s.id?.toString());
                         return (
                           <tr key={s.id}>
                             <td style={{color: 'var(--text-muted)'}}>#{idx + 1}</td>

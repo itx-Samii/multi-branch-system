@@ -24,8 +24,8 @@ export default function ExpenseManager() {
       ]);
       const expData = await expRes.json();
       const salData = await salRes.json();
-      setExpenses(expData || []);
-      setSalaries(salData || []);
+      setExpenses(Array.isArray(expData) ? expData : []);
+      setSalaries(Array.isArray(salData) ? salData : []);
     } catch (e) {
       console.error("Failed to fetch spending data", e);
     } finally {
@@ -195,8 +195,8 @@ export default function ExpenseManager() {
                 ) : displayItems.length === 0 ? (
                   <tr><td colSpan={5} style={{textAlign: 'center', padding: '2rem', color: 'var(--text-muted)'}}>No expenses match your filters.</td></tr>
                 ) : (
-                  displayItems.map((e: any) => (
-                    <tr key={e.id} style={{background: e.type === 'auto' ? 'rgba(79, 70, 229, 0.05)' : 'transparent'}}>
+                  displayItems.map((e: any, idx: number) => (
+                    <tr key={`exp_${e.id}_${idx}`} style={{background: e.type === 'auto' ? 'rgba(79, 70, 229, 0.05)' : 'transparent'}}>
                       <td style={{color: 'var(--text-muted)', fontSize: '0.85rem'}}>{new Date(e.date).toLocaleDateString()}</td>
                       <td><span className={`badge ${e.type === 'auto' ? 'badge-success' : 'badge-neutral'}`}>{e.category}</span></td>
                       <td>{e.description}</td>

@@ -33,7 +33,8 @@ async function withFileLock<T>(fileName: string, fn: () => Promise<T>): Promise<
   // Wait for any existing lock on this file, then acquire
   const existing = locks[fileName] || Promise.resolve();
   let releaseLock: () => void;
-  locks[fileName] = new Promise<void>((resolve) => { releaseLock = resolve; });
+  const promise = new Promise<void>((resolve) => { releaseLock = resolve; });
+  locks[fileName] = promise;
 
   try {
     await existing;
@@ -41,7 +42,7 @@ async function withFileLock<T>(fileName: string, fn: () => Promise<T>): Promise<
   } finally {
     releaseLock!();
     // Clean up if nothing else is waiting
-    if (locks[fileName] === locks[fileName]) {
+    if (locks[fileName] === promise) {
       delete locks[fileName];
     }
   }
@@ -127,14 +128,16 @@ export async function readConfig(): Promise<any> {
 }
 
 export async function writeConfig(config: any): Promise<void> {
-  const filePath = path.join(DATA_DIR, 'config.json');
-  try {
-    await fs.writeFile(filePath, JSON.stringify(config, null, 2), 'utf8');
-    setCache('config.json', config);
-  } catch (err) {
-    console.error(`Error writing config:`, err);
-    throw new Error(`Failed to save configuration.`);
-  }
+  return withFileLock('config.json', async () => {
+    const filePath = path.join(DATA_DIR, 'config.json');
+    try {
+      await fs.writeFile(filePath, JSON.stringify(config, null, 2), 'utf8');
+      setCache('config.json', config);
+    } catch (err) {
+      console.error(`Error writing config:`, err);
+      throw new Error(`Failed to save configuration.`);
+    }
+  });
 }
 
 export async function writeData<T>(fileName: string, data: T[]): Promise<void> {

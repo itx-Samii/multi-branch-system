@@ -26,7 +26,7 @@ export default function ACLedger() {
       ]);
       const sData = await sRes.json();
       const cData = await cRes.json();
-      setStudents(sData.data || []);
+      setStudents(sData.students || []);
       setClasses(cData || []);
     } catch {
       console.error("Failed to fetch data");
@@ -59,28 +59,39 @@ export default function ACLedger() {
   const handleCollect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent || !payAmount) return;
+    const amount = parseFloat(payAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid amount.');
+      return;
+    }
+    const remaining = (selectedStudent.annualCharges || 0) - (selectedStudent.paidAnnualCharges || 0);
+    if (amount > remaining) {
+      alert(`Amount exceeds remaining balance of Rs. ${remaining}`);
+      return;
+    }
     setProcessing(true);
     try {
-      const res = await fetch('/api/fees', {
-        method: 'POST',
+      // Correctly update paidAnnualCharges on the student record
+      const newPaid = (selectedStudent.paidAnnualCharges || 0) + amount;
+      const res = await fetch('/api/students', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          isACOnly: true,
-          studentId: selectedStudent.id,
-          amount: parseFloat(payAmount),
-          paymentDate: new Date().toISOString()
+          id: selectedStudent.id,
+          paidAnnualCharges: newPaid
         })
       });
       if (res.ok) {
         setShowModal(false);
         setPayAmount('');
         await fetchData();
-        alert("Payment Recorded Successfully!");
+        alert(`Rs. ${amount} AC installment recorded successfully!`);
       } else {
-        alert("Failed to record payment");
+        const err = await res.json();
+        alert(err.error || 'Failed to record payment');
       }
     } catch {
-      alert("System Error");
+      alert('System Error — check your connection');
     } finally {
       setProcessing(false);
     }

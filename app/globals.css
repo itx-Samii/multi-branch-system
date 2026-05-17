@@ -274,6 +274,23 @@ p { color: var(--text-muted); line-height: 1.6; font-size: 0.95rem; }
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Premium Custom Scrollbar for Sidebar */
+.sidebar::-webkit-scrollbar {
+  width: 5px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--border-focus);
 }
 .sidebar-link {
   display: block;

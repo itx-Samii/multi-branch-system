@@ -149,7 +149,7 @@ export default function FeeCollection() {
         });
         
         // Update the global list so search results show the new status
-        setAllFees(prev => prev.map(f => f.id === updated.id ? { ...f, ...updated } : f));
+        setAllFees(prev => prev.map(f => f.id?.toString() === updated.id?.toString() ? { ...f, ...updated } : f));
 
         // trigger print wrapper
         setTimeout(() => window.print(), 300);

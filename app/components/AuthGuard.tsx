@@ -1,25 +1,30 @@
 "use client";
 import { useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+
+const PUBLIC_PATHS = ['/login', '/license-blocked', '/unauthorized', '/superadmin'];
 
 export default function AuthGuard() {
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
-    // 1. Skip check on login page
-    if (pathname === '/login') return;
+    // Skip check on public pages
+    if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return;
 
-    // 2. Check for the session storage flag
-    // sessionStorage is cleared when the tab or window is closed.
-    // If the flag is missing, it means this is a new tab or the window was closed.
-    const hasActiveSession = sessionStorage.getItem('fms-active-session');
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/login', { cache: 'no-store' });
+        if (!res.ok) {
+          router.replace('/login');
+        }
+      } catch {
+        // Network error — allow grace period, don't force logout
+        console.warn('AuthGuard: Network error during session check');
+      }
+    };
 
-    if (!hasActiveSession) {
-      // Missing session flag, force logout to clear the server-side cookie
-      fetch('/api/auth/logout', { method: 'POST' }).then(() => {
-        window.location.href = '/login';
-      });
-    }
+    checkAuth();
   }, [pathname]);
 
   return null;
