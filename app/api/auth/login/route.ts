@@ -14,10 +14,11 @@ export async function POST(request: Request) {
     }
 
     const config = await readConfig();
+    const masterConfig = await readConfig('master');
 
     // 1. Check Super Admin (Developer / System Owner)
     if (trimmedUsername === 'superadmin') {
-      if (verifyPassword(trimmedPassword, config.superAdminPassword || config.adminPassword)) {
+      if (verifyPassword(trimmedPassword, masterConfig.superAdminPassword || config.superAdminPassword || config.adminPassword)) {
         const cookieStore = await cookies();
         const payload = JSON.stringify({ username: 'superadmin', role: 'superadmin', displayName: 'Master SaaS Controller', schoolId: 'master' });
         cookieStore.set('school-session', payload, {

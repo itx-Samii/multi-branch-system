@@ -16,18 +16,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'New password must be at least 4 characters' }, { status: 400 });
     }
 
-    // Extract schoolId from session cookie so each tenant updates THEIR own config
+    // Extract schoolId and role from session cookie so each tenant updates THEIR own config
     let schoolId = 'school_brookfield';
+    let userRole = 'admin';
     try {
       const cookieStore = await cookies();
       const session = cookieStore.get('school-session');
       if (session?.value) {
         const user = JSON.parse(session.value);
         if (user?.schoolId) schoolId = user.schoolId;
+        if (user?.role) userRole = user.role;
       }
     } catch {}
 
     const config = await readConfig(schoolId);
+
+    if (userRole === 'superadmin') {
+      const masterConfig = await readConfig('master');
+      const currentHash = masterConfig.superAdminPassword || config.superAdminPassword || config.adminPassword;
+      if (!verifyPassword(trimmedOld, currentHash)) {
+        return NextResponse.json({ error: 'Incorrect current Super Admin password' }, { status: 400 });
+      }
+      const newHash = hashPassword(trimmedNew);
+      masterConfig.superAdminPassword = newHash;
+      await writeConfig(masterConfig, 'master');
+      config.superAdminPassword = newHash;
+      await writeConfig(config, schoolId);
+      return NextResponse.json({ success: true, message: 'Super Admin password changed successfully' });
+    }
 
     if (!verifyPassword(trimmedOld, config.adminPassword)) {
       return NextResponse.json({ error: 'Incorrect current password' }, { status: 400 });

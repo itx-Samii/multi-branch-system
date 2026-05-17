@@ -248,16 +248,49 @@ export default function SuperAdminPage() {
             As the Super Admin (Software Developer & Owner), you have master cutoff capability over all distributed client school instances.
           </p>
         </div>
-        <button
-          onClick={() => {
-            setLicenseKey(`KEY-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${new Date().getFullYear()}`);
-            setShowModal(true);
-          }}
-          className="btn btn-primary"
-          style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', borderColor: '#b45309', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.5rem', fontSize: '1.05rem', fontWeight: 700, borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(245, 158, 11, 0.4)' }}
-        >
-          <span>⚡</span> Issue New License
-        </button>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <button
+            onClick={() => {
+              const oldPass = prompt("Enter Current Super Admin Password:");
+              if (!oldPass) return;
+              const newPass = prompt("Enter New Super Admin Password (min 4 chars):");
+              if (!newPass) return;
+              const confirmPass = prompt("Confirm New Super Admin Password:");
+              if (newPass !== confirmPass) {
+                alert("Passwords do not match!");
+                return;
+              }
+
+              fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ oldPassword: oldPass, newPassword: newPass })
+              }).then(async res => {
+                if (res.ok) {
+                  alert("Super Admin password changed successfully! Please login again.");
+                  window.location.href = '/login';
+                } else {
+                  const err = await res.json();
+                  alert("Error: " + (err.error || "Failed to update password"));
+                }
+              });
+            }}
+            className="btn btn-secondary"
+            style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)', padding: '0.85rem 1.5rem', fontSize: '1.05rem', fontWeight: 700, borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 8px 20px -5px rgba(239, 68, 68, 0.3)' }}
+          >
+            <span>🔒</span> Change Master Password
+          </button>
+          <button
+            onClick={() => {
+              setLicenseKey(`KEY-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${new Date().getFullYear()}`);
+              setShowModal(true);
+            }}
+            className="btn btn-primary"
+            style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', borderColor: '#b45309', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.5rem', fontSize: '1.05rem', fontWeight: 700, borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(245, 158, 11, 0.4)' }}
+          >
+            <span>⚡</span> Issue New License
+          </button>
+        </div>
       </div>
 
       {/* Metrics Row */}
