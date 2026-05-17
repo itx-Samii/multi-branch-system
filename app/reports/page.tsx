@@ -36,6 +36,16 @@ export default function CollectionReports() {
   };
 
   useEffect(() => {
+    async function checkRole() {
+      try {
+        const res = await fetch('/api/auth/login');
+        const data = await res.json();
+        if (data && data.user && data.user.role === 'accountant') {
+          window.location.href = '/unauthorized';
+        }
+      } catch {}
+    }
+    checkRole();
     fetchReportData();
     fetchClasses();
   }, []);

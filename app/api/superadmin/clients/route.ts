@@ -52,6 +52,19 @@ export async function GET() {
       clients = [defaultClient];
     }
 
+    const defaultFeatures = {
+      collection: true,
+      generate: true,
+      tracking: true,
+      reports: true,
+      expenses: true,
+      ledger: true,
+      salaries: true,
+      classes: true,
+      students: true,
+      users: true
+    };
+
     const cleanClients = await Promise.all(clients.map(async (c: any) => {
       const sid = c.schoolId || 'school_brookfield';
       // Fetch live student count for each school
@@ -70,6 +83,7 @@ export async function GET() {
         status: c.status || 'active',
         maxStudents: c.maxStudents || 1000,
         currentStudents,
+        features: { ...defaultFeatures, ...(c.features || {}) },
         createdAt: c.createdAt || new Date().toISOString(),
         lastSync: c.lastSync || new Date().toISOString()
       };
@@ -108,6 +122,19 @@ export async function POST(request: Request) {
     const cleanSlug = clientName.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
     const schoolId = `school_${cleanSlug}_${Math.random().toString(36).substring(2, 6)}`;
 
+    const defaultFeatures = {
+      collection: true,
+      generate: true,
+      tracking: true,
+      reports: true,
+      expenses: true,
+      ledger: true,
+      salaries: true,
+      classes: true,
+      students: true,
+      users: true
+    };
+
     const newClient = {
       id: schoolId,
       schoolId,
@@ -116,6 +143,7 @@ export async function POST(request: Request) {
       licenseKey: licenseKey.trim(),
       status: 'active',
       maxStudents: maxStudents ? parseInt(maxStudents, 10) : 1000,
+      features: defaultFeatures,
       createdAt: new Date().toISOString(),
       lastSync: new Date().toISOString()
     };
@@ -157,7 +185,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const { id, status, clientName, maxStudents, licenseKey, adminPassword } = await request.json();
+    const { id, status, clientName, maxStudents, licenseKey, adminPassword, features } = await request.json();
     if (!id) return NextResponse.json({ error: 'Client ID required' }, { status: 400 });
 
     const db = await getDatabase();
@@ -180,6 +208,7 @@ export async function PUT(request: Request) {
     if (clientName !== undefined && clientName.trim() !== '') updateFields.clientName = clientName.trim();
     if (maxStudents !== undefined) updateFields.maxStudents = parseInt(maxStudents, 10) || 1000;
     if (licenseKey !== undefined && licenseKey.trim() !== '') updateFields.licenseKey = licenseKey.trim();
+    if (features !== undefined) updateFields.features = features;
 
     await licensesCol.updateOne({ _id: client._id }, { $set: updateFields });
 

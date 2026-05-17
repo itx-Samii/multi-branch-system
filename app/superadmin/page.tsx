@@ -9,6 +9,18 @@ interface SaaSClient {
   status: string;
   maxStudents: number;
   currentStudents: number;
+  features?: {
+    collection?: boolean;
+    generate?: boolean;
+    tracking?: boolean;
+    reports?: boolean;
+    expenses?: boolean;
+    ledger?: boolean;
+    salaries?: boolean;
+    classes?: boolean;
+    students?: boolean;
+    users?: boolean;
+  };
   createdAt: string;
   lastSync: string;
 }
@@ -34,6 +46,23 @@ export default function SuperAdminPage() {
   const [editLicenseKey, setEditLicenseKey] = useState('');
   const [editMaxStudents, setEditMaxStudents] = useState('1000');
   const [editAdminPassword, setEditAdminPassword] = useState('');
+
+  // Feature Permissions Modal State
+  const defaultFeatures = {
+    collection: true,
+    generate: true,
+    tracking: true,
+    reports: true,
+    expenses: true,
+    ledger: true,
+    salaries: true,
+    classes: true,
+    students: true,
+    users: true
+  };
+  const [showFeatureModal, setShowFeatureModal] = useState(false);
+  const [featureClient, setFeatureClient] = useState<SaaSClient | null>(null);
+  const [clientFeatures, setClientFeatures] = useState(defaultFeatures);
 
   useEffect(() => {
     fetchClients();
@@ -89,7 +118,7 @@ export default function SuperAdminPage() {
     setEditingClient(client);
     setEditClientName(client.clientName || '');
     setEditLicenseKey(client.licenseKey || '');
-    setEditMaxStudents(client.maxStudents?.toString() || '1000');
+    setEditMaxStudents(!client.maxStudents || isNaN(client.maxStudents) ? '1000' : client.maxStudents.toString());
     setEditAdminPassword('');
     setShowEditModal(true);
   };
@@ -121,6 +150,42 @@ export default function SuperAdminPage() {
         fetchClients();
       } else {
         setError(data.error || 'Failed to modify SaaS client.');
+      }
+    } catch {
+      setError('System network error.');
+    }
+  };
+
+  const openFeatureModal = (client: SaaSClient) => {
+    setFeatureClient(client);
+    setClientFeatures({ ...defaultFeatures, ...(client.features || {}) });
+    setShowFeatureModal(true);
+  };
+
+  const handleUpdateFeatures = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!featureClient) return;
+    setError('');
+    setSuccess('');
+
+    try {
+      const res = await fetch('/api/superadmin/clients', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: featureClient.id,
+          features: clientFeatures
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSuccess(`Client feature access successfully updated!`);
+        setShowFeatureModal(false);
+        setFeatureClient(null);
+        fetchClients();
+      } else {
+        setError(data.error || 'Failed to modify SaaS client features.');
       }
     } catch {
       setError('System network error.');
@@ -301,6 +366,14 @@ export default function SuperAdminPage() {
                     </td>
                     <td style={{ padding: '1.35rem 1rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => openFeatureModal(c)}
+                          className="btn"
+                          style={{ padding: '0.5rem 0.85rem', fontSize: '0.85rem', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.4)' }}
+                          title="Manage Module Permissions"
+                        >
+                          🧩 Features
+                        </button>
                         <button
                           onClick={() => openEditModal(c)}
                           className="btn"
@@ -531,6 +604,177 @@ export default function SuperAdminPage() {
                   style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', borderColor: '#1e40af', padding: '0.85rem 1.75rem', fontWeight: 700, fontSize: '1.05rem', boxShadow: '0 10px 25px -5px rgba(59, 130, 246, 0.4)' }}
                 >
                   Save Modifications
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Feature Permissions Modal */}
+      {showFeatureModal && featureClient && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '560px', padding: '2.5rem', border: '1px solid rgba(168, 85, 247, 0.4)', boxShadow: '0 25px 50px rgba(0,0,0,0.7)', borderRadius: '24px', display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.75rem' }}>🧩</span>
+                <h3 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0, color: 'white' }}>Manage Feature Access</h3>
+              </div>
+              <button onClick={() => setShowFeatureModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.75rem', cursor: 'pointer' }}>×</button>
+            </div>
+
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.25rem', flexShrink: 0 }}>
+              Toggle ERP modules on/off for <strong style={{ color: 'white' }}>{featureClient.clientName}</strong>. Locked modules will be inaccessible.
+            </p>
+
+            <form onSubmit={handleUpdateFeatures} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', overflowY: 'auto', paddingRight: '0.5rem', maxHeight: '50vh' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>💰 Receive Payment</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Student fee collection & challan processing</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.collection}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, collection: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>⚡ Generate Vouchers</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Monthly fee voucher generation & distribution</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.generate}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, generate: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>📈 Class-wise Tracking</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Track paid & unpaid vouchers class-by-class</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.tracking}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, tracking: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>📑 Financial Reports</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Comprehensive financial analysis & audit sheets</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.reports}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, reports: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>🧾 Expense Manager</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Track utility bills, maintenance & general expenses</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.expenses}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, expenses: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>🏛️ AC Ledger</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Master school accounting ledger & cash flow</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.ledger}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, ledger: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>💵 Salaries Manager</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manage staff payroll and monthly allowances</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.salaries}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, salaries: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>🏫 Classes Management</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manage school grades, sections, and tuition fees</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.classes}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, classes: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>🎓 All Students</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Complete student directory and admissions</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.students}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, students: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'white', marginBottom: '2px' }}>🛡️ Users & Roles</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manage staff logins, accountants & admin roles</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={clientFeatures.users}
+                    onChange={(e) => setClientFeatures({ ...clientFeatures, users: e.target.checked })}
+                    style={{ width: '22px', height: '22px', cursor: 'pointer' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', flexShrink: 0, borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowFeatureModal(false)}
+                  className="btn"
+                  style={{ padding: '0.85rem 1.5rem', background: 'rgba(255,255,255,0.1)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', borderColor: '#6b21a8', padding: '0.85rem 1.75rem', fontWeight: 700, fontSize: '1.05rem', boxShadow: '0 10px 25px -5px rgba(168, 85, 247, 0.4)' }}
+                >
+                  Save Feature Permissions
                 </button>
               </div>
             </form>

@@ -48,13 +48,15 @@ export function proxy(request: NextRequest) {
     // BLOCKED routes for Accountant
     const blockedPrefixes = [
       '/superadmin',
+      '/reports',
       '/students',
       '/classes',
       '/salaries',
       '/ac-ledger',
       '/users',
       '/api/superadmin',
-      '/api/admin',
+      '/api/admin/backup',
+      '/api/admin/restore',
       '/api/users',
       '/api/salaries',
       '/api/staff'

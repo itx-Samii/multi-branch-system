@@ -494,11 +494,11 @@ export default function ClassWiseTracking() {
               <div style={{display: 'flex', gap: '1rem'}}>
                 <div className="form-group" style={{flex: 1}}>
                   <label className="form-label">Base Fee (Rs.)</label>
-                  <input required type="number" className="form-input" value={editingStudent.monthlyFee} onChange={e => setEditingStudent({...editingStudent, monthlyFee: parseFloat(e.target.value)})} />
+                  <input required type="number" className="form-input" value={isNaN(editingStudent.monthlyFee) ? '' : editingStudent.monthlyFee} onChange={e => setEditingStudent({...editingStudent, monthlyFee: parseFloat(e.target.value) || 0})} />
                 </div>
                 <div className="form-group" style={{flex: 1}}>
                   <label className="form-label">Discount (Rs.)</label>
-                  <input required type="number" className="form-input" value={editingStudent.discount} onChange={e => setEditingStudent({...editingStudent, discount: parseFloat(e.target.value)})} />
+                  <input required type="number" className="form-input" value={isNaN(editingStudent.discount) ? '' : editingStudent.discount} onChange={e => setEditingStudent({...editingStudent, discount: parseFloat(e.target.value) || 0})} />
                 </div>
               </div>
               <div style={{display: 'flex', gap: '1rem', marginTop: '1.5rem'}}>

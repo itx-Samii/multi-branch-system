@@ -13,6 +13,18 @@ interface UserInfo {
 export default function SidebarNav() {
   const pathname = usePathname();
   const [user, setUser] = useState<UserInfo>({ username: 'admin', role: 'admin', displayName: 'Administrator', schoolId: 'school_brookfield' });
+  const [features, setFeatures] = useState({
+    collection: true,
+    generate: true,
+    tracking: true,
+    reports: true,
+    expenses: true,
+    ledger: true,
+    salaries: true,
+    classes: true,
+    students: true,
+    users: true
+  });
 
   useEffect(() => {
     async function checkAuth() {
@@ -21,6 +33,11 @@ export default function SidebarNav() {
         if (res.ok) {
           const data = await res.json();
           if (data.user) setUser(data.user);
+        }
+        const licRes = await fetch('/api/admin/license');
+        if (licRes.ok) {
+          const licData = await licRes.json();
+          if (licData.features) setFeatures(licData.features);
         }
       } catch (e) {
         // ignore
@@ -32,16 +49,16 @@ export default function SidebarNav() {
   const allLinks = [
     { href: '/superadmin', label: 'Client Licenses (SaaS)', roles: ['superadmin'], icon: '🌍' },
     { href: '/', label: 'Dashboard', roles: ['admin'], icon: '📊' },
-    { href: '/collection', label: 'Receive Payment', roles: ['admin', 'accountant'], icon: '💰' },
-    { href: '/generate', label: 'Generate Vouchers', roles: ['admin', 'accountant'], icon: '⚡' },
-    { href: '/tracking', label: 'Class-wise Tracking', roles: ['admin', 'accountant'], icon: '📈' },
-    { href: '/reports', label: 'Financial Reports', roles: ['admin', 'accountant'], icon: '📑' },
-    { href: '/expenses', label: 'Expense Manager', roles: ['admin', 'accountant'], icon: '🧾' },
-    { href: '/ac-ledger', label: 'AC Ledger', roles: ['admin'], icon: '🏛️' },
-    { href: '/salaries', label: 'Salaries Manager', roles: ['admin'], icon: '💵' },
-    { href: '/classes', label: 'Classes Management', roles: ['admin'], icon: '🏫' },
-    { href: '/students', label: 'All Students', roles: ['admin'], icon: '🎓' },
-    { href: '/users', label: 'Users & Roles', roles: ['admin'], icon: '🛡️' },
+    { href: '/collection', label: 'Receive Payment', roles: ['admin', 'accountant'], icon: '💰', featureKey: 'collection' },
+    { href: '/generate', label: 'Generate Vouchers', roles: ['admin', 'accountant'], icon: '⚡', featureKey: 'generate' },
+    { href: '/tracking', label: 'Class-wise Tracking', roles: ['admin', 'accountant'], icon: '📈', featureKey: 'tracking' },
+    { href: '/reports', label: 'Financial Reports', roles: ['admin'], icon: '📑', featureKey: 'reports' },
+    { href: '/expenses', label: 'Expense Manager', roles: ['admin', 'accountant'], icon: '🧾', featureKey: 'expenses' },
+    { href: '/ac-ledger', label: 'AC Ledger', roles: ['admin'], icon: '🏛️', featureKey: 'ledger' },
+    { href: '/salaries', label: 'Salaries Manager', roles: ['admin'], icon: '💵', featureKey: 'salaries' },
+    { href: '/classes', label: 'Classes Management', roles: ['admin'], icon: '🏫', featureKey: 'classes' },
+    { href: '/students', label: 'All Students', roles: ['admin'], icon: '🎓', featureKey: 'students' },
+    { href: '/users', label: 'Users & Roles', roles: ['admin'], icon: '🛡️', featureKey: 'users' },
   ];
 
   const filteredLinks = allLinks.filter(link => link.roles.includes(user.role));
@@ -101,10 +118,17 @@ export default function SidebarNav() {
         <nav style={{display: 'flex', flexDirection: 'column', gap: '0.35rem'}}>
           {filteredLinks.map((link) => {
             const isActive = pathname === link.href;
+            const isLocked = link.featureKey ? !(features as any)[link.featureKey] : false;
             return (
               <Link 
                 key={link.href}
-                href={link.href} 
+                href={isLocked ? '#' : link.href} 
+                onClick={(e) => {
+                  if (isLocked) {
+                    e.preventDefault();
+                    alert(`🔒 Feature Locked: "${link.label}" has been restricted by Super Admin.\n\n📞 Support Line: +92 349 5999656\n✉️ Email: sameerabdullah930@gmail.com`);
+                  }
+                }}
                 className={`sidebar-link ${isActive ? 'active' : ''}`}
                 style={{
                   display: 'flex',
@@ -113,6 +137,7 @@ export default function SidebarNav() {
                   padding: '0.75rem 1rem',
                   borderRadius: '12px',
                   fontWeight: isActive ? 700 : 500,
+                  opacity: isLocked ? 0.6 : 1,
                   transition: 'all 0.2s',
                   background: isActive ? 'var(--primary-light)' : 'transparent',
                   borderLeft: isActive ? '4px solid var(--primary)' : '4px solid transparent',
@@ -120,7 +145,8 @@ export default function SidebarNav() {
                 }}
               >
                 <span style={{ fontSize: '1.15rem' }}>{link.icon}</span>
-                <span>{link.label}</span>
+                <span style={{ flex: 1 }}>{link.label}</span>
+                {isLocked && <span style={{ fontSize: '0.85rem' }} title="Restricted by Super Admin">🔒</span>}
               </Link>
             );
           })}

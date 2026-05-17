@@ -94,8 +94,8 @@ export default function LicenseBlockedPage() {
           gap: '0.5rem'
         }}>
           <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: '0.25rem', fontSize: '0.95rem' }}>Developer Contact & Licensing Support:</div>
-          <div>✉️ Email: <span style={{ color: '#60a5fa', fontWeight: 600 }}>support@antigravity-erp.com</span></div>
-          <div>📞 WhatsApp / Support Line: <span style={{ color: '#60a5fa', fontWeight: 600 }}>+92 (300) 1234567</span></div>
+          <div>✉️ Email: <span style={{ color: '#60a5fa', fontWeight: 600 }}>sameerabdullah930@gmail.com</span></div>
+          <div>📞 WhatsApp / Support Line: <span style={{ color: '#60a5fa', fontWeight: 600 }}>+92 349 5999656</span></div>
           <div>⚠️ Status Diagnostic: <span style={{ color: '#ef4444', fontFamily: 'monospace', fontWeight: 700 }}>ERR_LICENSE_SUSPENDED</span></div>
         </div>
 

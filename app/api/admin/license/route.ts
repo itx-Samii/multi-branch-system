@@ -57,23 +57,38 @@ export async function GET() {
       finalStatus = 'blocked';
     }
 
+    const defaultFeatures = {
+      collection: true,
+      generate: true,
+      tracking: true,
+      reports: true,
+      expenses: true,
+      ledger: true,
+      salaries: true,
+      classes: true,
+      students: true,
+      users: true
+    };
+    const features = licenseDoc?.features || (configLic?.value?.features || defaultFeatures);
+
     if (licenseDoc) {
       return NextResponse.json({
         status: finalStatus,
         clientName: licenseDoc.clientName || 'School System',
         key: licenseDoc.licenseKey || 'KEY',
         maxStudents: licenseDoc.maxStudents || 1000,
+        features: { ...defaultFeatures, ...features },
         lastChecked: new Date().toISOString()
       });
     }
 
     if (configLic && configLic.value) {
-      return NextResponse.json({ ...configLic.value, status: finalStatus });
+      return NextResponse.json({ ...configLic.value, status: finalStatus, features: { ...defaultFeatures, ...features } });
     }
 
-    return NextResponse.json({ status: finalStatus, clientName: 'Brook Field School System', maxStudents: 1000 });
+    return NextResponse.json({ status: finalStatus, clientName: 'Brook Field School System', maxStudents: 1000, features: defaultFeatures });
   } catch (err) {
-    return NextResponse.json({ status: 'active', clientName: 'Brook Field School System', maxStudents: 1000 });
+    return NextResponse.json({ status: 'active', clientName: 'Brook Field School System', maxStudents: 1000, features: { collection: true, generate: true, tracking: true, reports: true, expenses: true, ledger: true, salaries: true, classes: true, students: true, users: true } });
   }
 }
 
