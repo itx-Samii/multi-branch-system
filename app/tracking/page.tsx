@@ -90,7 +90,7 @@ export default function ClassWiseTracking() {
           remainingAnnualCharges: feeRecord
             ? feeRecord.remainingAnnualCharges
             : (student.annualCharges || 0) - (student.paidAnnualCharges || 0),
-          studentBranchId: student.branchId || 'branch_main',
+          studentBranchId: (!student.branchId || student.branchId === 'branch_main') ? (student.classBranchId || 'branch_main') : student.branchId,
           collectedByBranchId: feeRecord ? (feeRecord.collectedByBranchId || feeRecord.branchId || 'branch_main') : null
         };
       });

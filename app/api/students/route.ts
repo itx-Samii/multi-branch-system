@@ -26,8 +26,12 @@ export async function GET(request: Request) {
     let filtered = allStudents.filter((s: any) => {
       // Allow legacy records to match the default branch
       const isDefaultRequested = branchId === defaultBranchId || branchId === 'branch_main';
-      const studentBranch = s.branchId || 'branch_main';
-      const branchMatch = branchId === 'all' || (isDefaultRequested && (studentBranch === 'branch_main' || !s.branchId)) || studentBranch === branchId;
+      
+      const studentClass = allClasses.find((c: any) => c.id?.toString() === s.classId?.toString());
+      const classBranch = studentClass ? (studentClass.branchId || 'branch_main') : 'branch_main';
+      const studentBranch = (!s.branchId || s.branchId === 'branch_main') ? classBranch : s.branchId;
+
+      const branchMatch = branchId === 'all' || (isDefaultRequested && studentBranch === 'branch_main') || studentBranch === branchId;
       const nameMatch = (s.name?.toLowerCase() || "").includes(search) ||
                        (s.fatherName?.toLowerCase() || "").includes(search) ||
                        (s.admissionNumber?.toLowerCase() || "").includes(search);
@@ -42,7 +46,12 @@ export async function GET(request: Request) {
 
     const enriched = paginatedStudents.map((student: any) => {
       const studentClass = allClasses.find((c: any) => c.id.toString() === student.classId?.toString());
-      return { ...student, branchId: student.branchId || 'branch_main', className: studentClass ? studentClass.name : 'Unassigned' };
+      return { 
+        ...student, 
+        branchId: student.branchId || 'branch_main', 
+        classBranchId: studentClass ? (studentClass.branchId || 'branch_main') : 'branch_main',
+        className: studentClass ? studentClass.name : 'Unassigned' 
+      };
     });
 
     const totalPages = Math.ceil(total / limit) || 1;

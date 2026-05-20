@@ -32,16 +32,19 @@ export async function GET(request: Request) {
     classes.forEach((c: any) => classesMap.set(c.id?.toString(), c));
 
     fees = fees.map((f: any) => {
-      if (!f.studentName && f.studentId) {
-        const student = studentsMap.get(f.studentId?.toString());
-        if (student) {
-          const cls = classesMap.get(student.classId?.toString());
-          f.studentName = student.name;
-          f.fatherName = student.fatherName;
-          f.admissionNumber = student.admissionNumber;
-          f.className = cls ? `${cls.name}${cls.section ? ' - ' + cls.section : ''}` : `Class ${student.classId}`;
-          f.classId = student.classId?.toString();
-        }
+      const student = f.studentId ? studentsMap.get(f.studentId?.toString()) : null;
+      const cls = student ? classesMap.get(student.classId?.toString()) : (f.classId ? classesMap.get(f.classId?.toString()) : null);
+      const classBranchId = cls ? (cls.branchId || 'branch_main') : 'branch_main';
+      
+      const currentBranch = f.branchId || 'branch_main';
+      f.branchId = currentBranch === 'branch_main' ? classBranchId : currentBranch;
+
+      if (student) {
+        if (!f.studentName) f.studentName = student.name;
+        if (!f.fatherName) f.fatherName = student.fatherName;
+        if (!f.admissionNumber) f.admissionNumber = student.admissionNumber;
+        if (!f.className) f.className = cls ? `${cls.name}${cls.section ? ' - ' + cls.section : ''}` : `Class ${student.classId}`;
+        if (!f.classId) f.classId = student.classId?.toString();
       }
       return f;
     });
@@ -145,7 +148,7 @@ export async function POST(request: Request) {
         id: newId,
         studentId: sid?.toString(),
         schoolId,
-        branchId: student.branchId || 'branch_main', // 🏛️ Inherit branch from student for strict isolation
+        branchId: (!student.branchId || student.branchId === 'branch_main') ? (classObj?.branchId || 'branch_main') : student.branchId,
         studentName: student.name,
         fatherName: student.fatherName,
         admissionNumber: student.admissionNumber,
