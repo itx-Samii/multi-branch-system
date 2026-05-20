@@ -58,6 +58,7 @@ export default function GenerateFees() {
   const [classes, setClasses] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('all');
+  const [selectedClass, setSelectedClass] = useState('all');
 
   const fetchClasses = async () => {
     try {
@@ -162,7 +163,7 @@ export default function GenerateFees() {
   };
 
 
-  const [selectedClass, setSelectedClass] = useState('all');
+
 
   const filteredFees = (fees || []).filter(f => {
     const matchesSearch = (f.studentName || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
