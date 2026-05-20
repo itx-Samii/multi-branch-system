@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { username, password, displayName, role } = body;
+    const { username, password, displayName, role, branchId } = body;
 
     const trimmedUsername = username?.trim()?.toLowerCase();
     if (!trimmedUsername || !password || !displayName) {
@@ -86,16 +86,21 @@ export async function POST(request: Request) {
     }
 
     const maxId = users.length > 0 ? Math.max(...users.map((u: any) => u.id || 0)) : 0;
-    const newUser = {
+    const resolvedRole = role || 'accountant';
+    const newUser: any = {
       id: maxId + 1,
       username: trimmedUsername,
       password: hashPassword(password),
       displayName: displayName.trim(),
-      role: role || 'accountant',
+      role: resolvedRole,
       status: 'active',
       schoolId,
       createdAt: new Date().toISOString()
     };
+
+    if (resolvedRole === 'accountant' && branchId) {
+      newUser.branchId = branchId;
+    }
 
     const updatedUsers = [...users, newUser];
     await writeData(FILE_NAME, updatedUsers, schoolId);

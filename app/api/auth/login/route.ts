@@ -89,14 +89,23 @@ export async function POST(request: Request) {
 
     if (verifyPassword(trimmedPassword, user.password)) {
       const activeSchoolId = user.schoolId || 'school_brookfield';
+      const activeBranchId = user.branchId || null; // 🏛️ Branch isolation for accountants
       const cookieStore = await cookies();
-      const payload = JSON.stringify({ username: user.username, role: user.role, displayName: user.displayName, schoolId: activeSchoolId });
-      cookieStore.set('school-session', payload, {
+      const sessionPayload: any = {
+        username: user.username,
+        role: user.role,
+        displayName: user.displayName,
+        schoolId: activeSchoolId,
+      };
+      // Only add branchId to session if user is branch-scoped (not null/undefined)
+      if (activeBranchId) sessionPayload.branchId = activeBranchId;
+
+      cookieStore.set('school-session', JSON.stringify(sessionPayload), {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax'
       });
-      return NextResponse.json({ success: true, user: { username: user.username, role: user.role, displayName: user.displayName, schoolId: activeSchoolId } });
+      return NextResponse.json({ success: true, user: sessionPayload });
     } else {
       return NextResponse.json({ error: 'Incorrect Password' }, { status: 401 });
     }

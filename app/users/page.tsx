@@ -8,6 +8,7 @@ interface User {
   role: string;
   status: string;
   createdAt: string;
+  branchId?: string;
 }
 
 export default function UsersPage() {
@@ -16,11 +17,13 @@ export default function UsersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Modal State
   const [showModal, setShowModal] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [selectedBranchId, setSelectedBranchId] = useState('branch_main');
+
+  const [branches, setBranches] = useState<any[]>([]);
 
   // Edit/Password Modal State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -36,6 +39,9 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
+    fetch('/api/branches').then(res => res.json()).then(data => {
+      setBranches(Array.isArray(data) ? data : []);
+    }).catch(err => console.error(err));
   }, []);
 
   const fetchUsers = async () => {
@@ -64,7 +70,7 @@ export default function UsersPage() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, displayName, role: 'accountant' })
+        body: JSON.stringify({ username, password, displayName, role: 'accountant', branchId: selectedBranchId })
       });
 
       const data = await res.json();
@@ -74,6 +80,7 @@ export default function UsersPage() {
         setUsername('');
         setPassword('');
         setDisplayName('');
+        setSelectedBranchId('branch_main');
         fetchUsers();
       } else {
         setError(data.error || 'Failed to create user.');
@@ -238,6 +245,7 @@ export default function UsersPage() {
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Operator Name</th>
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Username</th>
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Role</th>
+                  <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Assigned Campus</th>
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Status</th>
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700 }}>Created Date</th>
                   <th style={{ padding: '1rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.8rem', fontWeight: 700, textAlign: 'right' }}>Actions</th>
@@ -252,6 +260,13 @@ export default function UsersPage() {
                       <span style={{ padding: '0.35rem 0.75rem', background: 'rgba(59, 130, 246, 0.15)', color: '#38bdf8', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>
                         {u.role}
                       </span>
+                    </td>
+                    <td style={{ padding: '1.25rem 1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                      {u.role === 'admin' || u.role === 'superadmin' ? (
+                        <span style={{ color: 'var(--success)' }}>🌐 All Campuses</span>
+                      ) : (
+                        <span>📍 {branches.find(b => (b.branchId || b.id) === u.branchId)?.name || (u.branchId === 'branch_main' ? 'Main Campus' : 'Unknown')}</span>
+                      )}
                     </td>
                     <td style={{ padding: '1.25rem 1rem' }}>
                       <button
@@ -368,14 +383,30 @@ export default function UsersPage() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 }}>ASSIGNED ROLE</label>
-                <input
-                  disabled
-                  type="text"
-                  style={{ width: '100%', padding: '0.85rem', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#38bdf8', fontSize: '0.95rem', fontWeight: 700 }}
-                  value="Accountant (Restricted Access)"
-                />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 }}>ASSIGNED ROLE</label>
+                  <input
+                    disabled
+                    type="text"
+                    style={{ width: '100%', padding: '0.85rem', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#38bdf8', fontSize: '0.95rem', fontWeight: 700 }}
+                    value="Accountant"
+                  />
+                </div>
+                <div>
+                  <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 }}>📍 ASSIGNED BRANCH</label>
+                  <select
+                    className="form-input"
+                    value={selectedBranchId}
+                    onChange={(e) => setSelectedBranchId(e.target.value)}
+                    style={{ width: '100%', padding: '0.85rem', borderRadius: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', color: 'white', fontSize: '0.95rem' }}
+                  >
+                    {branches.length === 0 && <option value="branch_main">🏫 Main Campus</option>}
+                    {branches.map(b => (
+                      <option key={b.id} value={b.branchId || b.id}>{b.isDefault ? '🏫' : '🏢'} {b.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>

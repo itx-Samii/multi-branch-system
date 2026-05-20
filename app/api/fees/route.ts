@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
+import { readData, writeData, generateId, getTenantId, getTenantBranchId } from '@/lib/dbHandler';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,14 @@ export async function GET(request: Request) {
     const year = searchParams.get('year');
     const search = searchParams.get('search')?.toLowerCase();
     const limit = parseInt(searchParams.get('limit') || '10000');
+    
+    const sessionBranchId = await getTenantBranchId();
+    // Allow explicit query param branchId to override session branch for multi-branch fee collection
+    let branchId = searchParams.get('branchId') || sessionBranchId || 'all';
+
+    const branches = await readData<any>('branches.json', schoolId);
+    const defaultBranch = branches.find((b: any) => b.isDefault);
+    const defaultBranchId = defaultBranch ? (defaultBranch.branchId || defaultBranch.id) : 'branch_main';
 
     let fees = await readData<any>('fees.json', schoolId);
     const students = await readData<any>('students.json', schoolId);
@@ -40,6 +48,16 @@ export async function GET(request: Request) {
 
     if (studentId) fees = fees.filter((f: any) => f.studentId?.toString() === studentId.toString());
     
+    // 🏛️ Branch isolation: filter by branchId. Allow legacy records to match the default branch.
+    if (branchId && branchId !== 'all') {
+      const isDefaultRequested = branchId === defaultBranchId || branchId === 'branch_main';
+      fees = fees.filter((f: any) => {
+        const fb = f.branchId || 'branch_main';
+        if (isDefaultRequested && (fb === 'branch_main' || !f.branchId)) return true;
+        return fb === branchId;
+      });
+    }
+
     if (classId && classId !== 'all') {
         fees = fees.filter((f: any) => f.classId?.toString() === classId.toString());
     }
@@ -127,6 +145,7 @@ export async function POST(request: Request) {
         id: newId,
         studentId: sid?.toString(),
         schoolId,
+        branchId: student.branchId || 'branch_main', // 🏛️ Inherit branch from student for strict isolation
         studentName: student.name,
         fatherName: student.fatherName,
         admissionNumber: student.admissionNumber,
@@ -191,12 +210,17 @@ export async function PUT(request: Request) {
     if (totalReceived >= totalDue) status = 'Paid';
     else if (totalReceived > 0) status = 'Partially Paid';
 
+    const sessionBranchId = await getTenantBranchId();
+    const collectedByBranchId = sessionBranchId || 'branch_main';
+
     const updateData = {
       status,
       paymentDate: new Date().toISOString(),
       paidTuition: updatedPaidTuition,
       paidAC: updatedPaidAC,
-      totalReceived: totalReceived
+      totalReceived: totalReceived,
+      branchId: feeData.branchId || 'branch_main',
+      collectedByBranchId
     };
 
     fees[feeIndex] = { ...fees[feeIndex], ...updateData };

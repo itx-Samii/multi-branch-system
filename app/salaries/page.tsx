@@ -10,8 +10,10 @@ export default function SalaryManagement() {
 
   // Staff Form
   const [showStaffModal, setShowStaffModal] = useState(false);
-  const [staffData, setStaffData] = useState({ name: '', designation: 'Teacher', salary: '', deductionPerOff: '0' });
+  const [staffData, setStaffData] = useState({ name: '', designation: 'Teacher', salary: '', deductionPerOff: '0', branchId: '' });
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
 
   // Payment Processing Modal
   const [showPayModal, setShowPayModal] = useState(false);
@@ -53,16 +55,35 @@ export default function SalaryManagement() {
     fetchData();
   }, [selectedMonth, selectedYear]);
 
+  useEffect(() => {
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+      setStaffData(prev => ({ ...prev, branchId: saved !== 'all' ? saved : 'branch_main' }));
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+        setStaffData(prev => ({ ...prev, branchId: curr !== 'all' ? curr : 'branch_main' }));
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
+  }, []);
+
   const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     const method = editingId ? 'PUT' : 'POST';
     
     // Ensure numbers are sent correctly
+    const targetBranch = staffData.branchId || (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main'));
     const payload = { 
       ...staffData, 
       id: editingId,
       salary: parseFloat(staffData.salary || '0'),
-      deductionPerOff: parseFloat(staffData.deductionPerOff || '0')
+      deductionPerOff: parseFloat(staffData.deductionPerOff || '0'),
+      branchId: targetBranch
     };
 
     const res = await fetch('/api/staff', {
@@ -74,7 +95,7 @@ export default function SalaryManagement() {
     if (res.ok) {
       setShowStaffModal(false);
       setEditingId(null);
-      setStaffData({ name: '', designation: 'Teacher', salary: '', deductionPerOff: '0' });
+      setStaffData({ name: '', designation: 'Teacher', salary: '', deductionPerOff: '0', branchId: selectedBranch !== 'all' ? selectedBranch : 'branch_main' });
       fetchData();
     }
   };
@@ -96,7 +117,8 @@ export default function SalaryManagement() {
           year: selectedYear,
           amount: netAmount,
           offs: parseFloat(offs),
-          deduction: deductionAmount
+          deduction: deductionAmount,
+          branchId: payingStaff.branchId || (selectedBranch !== 'all' ? selectedBranch : 'branch_main')
         })
       });
 
@@ -157,18 +179,40 @@ export default function SalaryManagement() {
 
   const isPaid = (staffId: any) => history.some(h => h.staffId?.toString() === staffId?.toString());
 
+  const filteredStaff = staff.filter(s => selectedBranch === 'all' || (s.branchId || 'branch_main') === selectedBranch);
+  const filteredHistory = history.filter(h => selectedBranch === 'all' || (h.branchId || 'branch_main') === selectedBranch);
+
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem'}}>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem'}}>
         <div>
           <h1>Staff & Salary Management</h1>
           <p>Manage school employees and process monthly payroll.</p>
         </div>
-        <div style={{display: 'flex', gap: '0.5rem'}}>
+        <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap'}}>
+          {branches.length > 1 && (
+            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-card)', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)'}}>
+              <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>📍 Campus:</span>
+              <select 
+                className="form-input" 
+                style={{padding: 0, height: 'auto', background: 'transparent', border: 'none', fontWeight: 700, color: 'var(--primary)', cursor: 'pointer', outline: 'none'}} 
+                value={selectedBranch} 
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedBranch(val);
+                  localStorage.setItem('admin-active-campus', val);
+                  window.dispatchEvent(new Event('campus-changed'));
+                }}
+              >
+                <option value="all">🌐 All Campuses</option>
+                {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
           <button 
             className="btn btn-secondary" 
             style={{padding: '0.4rem 1rem', fontSize: '0.85rem'}}
-            onClick={() => exportToCSV(tab === 'directory' ? staff : history, tab === 'directory' ? 'Staff_List' : `Payroll_${selectedMonth}_${selectedYear}`, tab === 'directory' ? {
+            onClick={() => exportToCSV(tab === 'directory' ? filteredStaff : filteredHistory, tab === 'directory' ? 'Staff_List' : `Payroll_${selectedMonth}_${selectedYear}`, tab === 'directory' ? {
               name: 'Name',
               designation: 'Designation',
               salary: 'Salary',
@@ -223,10 +267,10 @@ export default function SalaryManagement() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={6} style={{textAlign: 'center', padding: '3rem'}}>Loading directory...</td></tr>
-                ) : staff.length === 0 ? (
+                ) : filteredStaff.length === 0 ? (
                   <tr><td colSpan={6} style={{textAlign: 'center', padding: '3rem', color: 'var(--text-muted)'}}>No employees registered yet.</td></tr>
                 ) : (
-                  staff.map((s, idx) => (
+                  filteredStaff.map((s, idx) => (
                     <tr key={s.id}>
                       <td style={{color: 'var(--text-muted)'}}>#{idx + 1}</td>
                       <td style={{fontWeight: 700}}>{s.name}</td>
@@ -236,7 +280,7 @@ export default function SalaryManagement() {
                       <td>{s.joinedDate ? new Date(s.joinedDate).toLocaleDateString() : 'N/A'}</td>
                       <td>
                         <div style={{display: 'flex', gap: '0.5rem'}}>
-                          <button className="btn btn-secondary" style={{padding: '0.35rem 0.75rem', fontSize: '0.8rem'}} onClick={() => { setEditingId(s.id); setStaffData({name: s.name, designation: s.designation, salary: s.salary.toString(), deductionPerOff: (s.deductionPerOff || 0).toString()}); setShowStaffModal(true); }}>Edit</button>
+                          <button className="btn btn-secondary" style={{padding: '0.35rem 0.75rem', fontSize: '0.8rem'}} onClick={() => { setEditingId(s.id); setStaffData({name: s.name, designation: s.designation, salary: s.salary.toString(), deductionPerOff: (s.deductionPerOff || 0).toString(), branchId: s.branchId || 'branch_main'}); setShowStaffModal(true); }}>Edit</button>
                           <button className="btn btn-secondary" style={{padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: 'var(--danger)', borderColor: 'var(--danger)'}} onClick={() => handleDeleteStaff(s.id)}>Delete</button>
                         </div>
                       </td>
@@ -272,7 +316,7 @@ export default function SalaryManagement() {
             </div>
             <div style={{flex: 1, textAlign: 'right'}}>
               <div style={{color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600}}>Total Monthly Payroll</div>
-              <div style={{fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)'}}>Rs. {history.reduce((a, b) => a + (parseFloat(b.amount) || 0), 0)}</div>
+              <div style={{fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)'}}>Rs. {filteredHistory.reduce((a, b) => a + (parseFloat(b.amount) || 0), 0)}</div>
             </div>
           </div>
 
@@ -290,10 +334,10 @@ export default function SalaryManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {staff.length === 0 ? (
+                  {filteredStaff.length === 0 ? (
                     <tr><td colSpan={6} style={{textAlign: 'center', padding: '3rem'}}>Register staff first to process salaries.</td></tr>
                   ) : (
-                    staff
+                    filteredStaff
                       .filter(s => {
                         if (payrollStatusFilter === 'all') return true;
                         const paid = isPaid(s.id);
@@ -376,6 +420,14 @@ export default function SalaryManagement() {
                 <input required type="number" className="form-input" value={staffData.deductionPerOff} onChange={e => setStaffData({...staffData, deductionPerOff: e.target.value})} />
                 <p style={{fontSize: '0.75rem', marginTop: '0.25rem'}}>Amount to subtract for each day of leave/off.</p>
               </div>
+              {branches.length > 1 && (
+                <div className="form-group">
+                  <label className="form-label">Campus</label>
+                  <select className="form-input" value={staffData.branchId || (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main'))} onChange={e => setStaffData({...staffData, branchId: e.target.value})}>
+                    {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{display: 'flex', gap: '1rem', marginTop: '2rem'}}>
                 <button type="button" className="btn btn-secondary" style={{flex: 1}} onClick={() => setShowStaffModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" style={{flex: 1}}>Save Employee</button>

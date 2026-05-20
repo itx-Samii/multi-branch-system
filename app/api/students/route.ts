@@ -1,29 +1,38 @@
 import { NextResponse } from 'next/server';
-import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
+import { readData, writeData, generateId, getTenantId, getTenantBranchId } from '@/lib/dbHandler';
 import { getDatabase } from '@/lib/mongodb';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const schoolId = await getTenantId();
+  const sessionBranchId = await getTenantBranchId(); // 🏛️ strict session branch
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const search = searchParams.get('search')?.toLowerCase() || '';
     const classId = searchParams.get('classId') || 'all';
+    // If session has branchId (Accountant), force it. Otherwise use param (Admin)
+    let branchId = sessionBranchId || searchParams.get('branchId') || 'all';
+
+    const branches = await readData<any>('branches.json', schoolId);
+    const defaultBranch = branches.find((b: any) => b.isDefault);
+    const defaultBranchId = defaultBranch ? (defaultBranch.branchId || defaultBranch.id) : 'branch_main';
 
     const allStudents = await readData<any>('students.json', schoolId);
     const allClasses = await readData<any>('classes.json', schoolId);
 
     let filtered = allStudents.filter((s: any) => {
-      const nameMatch = (s.name?.toLowerCase() || "").includes(search) || 
+      // Allow legacy records to match the default branch
+      const isDefaultRequested = branchId === defaultBranchId || branchId === 'branch_main';
+      const studentBranch = s.branchId || 'branch_main';
+      const branchMatch = branchId === 'all' || (isDefaultRequested && (studentBranch === 'branch_main' || !s.branchId)) || studentBranch === branchId;
+      const nameMatch = (s.name?.toLowerCase() || "").includes(search) ||
                        (s.fatherName?.toLowerCase() || "").includes(search) ||
                        (s.admissionNumber?.toLowerCase() || "").includes(search);
-      if (classId && classId !== 'all') {
-        return nameMatch && s.classId?.toString() === classId.toString();
-      }
-      return nameMatch;
+      const classMatch = classId === 'all' || s.classId?.toString() === classId.toString();
+      return branchMatch && nameMatch && classMatch;
     });
 
     const total = filtered.length;
@@ -33,7 +42,7 @@ export async function GET(request: Request) {
 
     const enriched = paginatedStudents.map((student: any) => {
       const studentClass = allClasses.find((c: any) => c.id.toString() === student.classId?.toString());
-      return { ...student, className: studentClass ? studentClass.name : 'Unassigned' };
+      return { ...student, branchId: student.branchId || 'branch_main', className: studentClass ? studentClass.name : 'Unassigned' };
     });
 
     const totalPages = Math.ceil(total / limit) || 1;
@@ -46,6 +55,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const schoolId = await getTenantId();
+  const sessionBranchId = await getTenantBranchId();
   try {
     const body = await request.json();
     
@@ -61,15 +71,16 @@ export async function POST(request: Request) {
     
     const newId = await generateId('students.json', schoolId);
     
-    const newStudent = { 
-      ...body, 
+    const newStudent = {
+      ...body,
       id: newId,
       schoolId,
+      branchId: sessionBranchId || body.branchId || 'branch_main', // 🏛️ force session branch if accountant
       monthlyFee: parseFloat(body.monthlyFee || '0'),
       annualCharges: parseFloat(body.annualCharges || '0'),
       discount: parseFloat(body.discount || '0'),
       createdAt: new Date().toISOString(),
-      paidAnnualCharges: 0 
+      paidAnnualCharges: 0
     };
 
     students.push(newStudent);

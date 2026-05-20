@@ -3,12 +3,14 @@ import React, { useState, useEffect } from 'react';
 
 export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'monthly' | 'all-time'>('monthly');
+  const [dashboardBranch, setDashboardBranch] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<{fees: any[], students: any[], expenses: any[], salaries: any[]}>({ 
+  const [data, setData] = useState<{fees: any[], students: any[], expenses: any[], salaries: any[], branches: any[]}>({ 
     fees: [], 
     students: [], 
     expenses: [], 
-    salaries: [] 
+    salaries: [],
+    branches: []
   });
 
   const loadDashboard = async () => {
@@ -23,20 +25,21 @@ export default function Dashboard() {
         body: JSON.stringify({ month: currentMonth, year: currentYear })
       }).catch(err => console.error("Silent generate failed", err));
 
-      const [feesRes, studentsRes, expRes, salRes] = await Promise.all([
+      const [feesRes, studentsRes, expRes, salRes, branchesRes] = await Promise.all([
         fetch('/api/fees', { cache: 'no-store' }),
         fetch('/api/students?limit=5000', { cache: 'no-store' }),
-
         fetch('/api/expenses', { cache: 'no-store' }),
-        fetch('/api/salaries', { cache: 'no-store' }) 
+        fetch('/api/salaries', { cache: 'no-store' }),
+        fetch('/api/branches', { cache: 'no-store' })
       ]);
       
       const fees = feesRes.ok ? await feesRes.json() : [];
       const sr = studentsRes.ok ? await studentsRes.json() : {total:0, students:[]};
       const exps = expRes.ok ? await expRes.json() : [];
       const sals = salRes.ok ? await salRes.json() : [];
+      const br = branchesRes.ok ? await branchesRes.json() : [];
       
-      setData({ fees, students: sr.students || [], expenses: exps, salaries: sals });
+      setData({ fees, students: sr.students || [], expenses: exps, salaries: sals, branches: br });
     } catch (err) {
       console.error("Dashboard error", err);
     } finally {
@@ -46,12 +49,28 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboard();
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setDashboardBranch(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setDashboardBranch(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   const calculateMetrics = () => {
     const now = new Date();
     const { fees, students, expenses, salaries } = data;
     
+    const filteredStudents = dashboardBranch === 'all' ? students : students.filter(s => (s.branchId || 'branch_main') === dashboardBranch);
+    const filteredFees = dashboardBranch === 'all' ? fees : fees.filter(f => (f.collectedByBranchId || f.branchId || 'branch_main') === dashboardBranch);
+    const filteredExpenses = dashboardBranch === 'all' ? expenses : expenses.filter(e => (e.branchId || 'branch_main') === dashboardBranch);
+    const filteredSalaries = dashboardBranch === 'all' ? salaries : salaries.filter(s => (s.branchId || 'branch_main') === dashboardBranch);
+
     const isPaidInTargetRange = (dateStr: string) => {
         if (!dateStr) return false;
         if (viewMode === 'all-time') return true;
@@ -59,9 +78,9 @@ export default function Dashboard() {
         return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     };
 
-    const allTimeAC = students.reduce((a, s: any) => a + (parseFloat(s.paidAnnualCharges) || 0), 0);
+    const allTimeAC = filteredStudents.reduce((a, s: any) => a + (parseFloat(s.paidAnnualCharges) || 0), 0);
     
-    const targetFees = fees.filter((f: any) => (f.status === 'Paid' || f.status === 'Partially Paid') && isPaidInTargetRange(f.paymentDate));
+    const targetFees = filteredFees.filter((f: any) => (f.status === 'Paid' || f.status === 'Partially Paid') && isPaidInTargetRange(f.paymentDate));
     // User wants ONLY Tuition from the filtered fees (Monthly or All-time)
     const tuitionIn = targetFees.reduce((a, c: any) => a + (c.isACOnly ? 0 : (parseFloat(c.paidTuition) || parseFloat(c.amount) || 0)), 0);
     
@@ -69,25 +88,44 @@ export default function Dashboard() {
     const gross = allTimeAC + tuitionIn;
 
     // Expenses (Filter out manual 'Salary' entries to prevent double counting with formal salaries)
-    const targetExps = expenses.filter((e: any) => isPaidInTargetRange(e.date) && e.category?.toLowerCase() !== 'salary')
+    const targetExps = filteredExpenses.filter((e: any) => isPaidInTargetRange(e.date) && e.category?.toLowerCase() !== 'salary')
                                .reduce((a, c: any) => a + (parseFloat(c.amount) || 0), 0);
-    const targetSals = salaries.filter((s: any) => isPaidInTargetRange(s.paymentDate)).reduce((a, c: any) => a + (parseFloat(c.amount) || 0), 0);
+    const targetSals = filteredSalaries.filter((s: any) => isPaidInTargetRange(s.paymentDate)).reduce((a, c: any) => a + (parseFloat(c.amount) || 0), 0);
 
-    const currentMonthBilled = fees.filter((f: any) => f.month === now.toLocaleString('default', { month: 'long' }) && f.year === now.getFullYear().toString())
+    const currentMonthBilled = filteredFees.filter((f: any) => f.month === now.toLocaleString('default', { month: 'long' }) && f.year === now.getFullYear().toString())
                                    .reduce((a: number, c: any) => a + (parseFloat(c.amount) || 0), 0);
-    const totalBilled = fees.reduce((a, c: any) => a + (parseFloat(c.amount) || 0), 0) + students.reduce((a, s: any) => a + (parseFloat(s.annualCharges) || 0), 0);
+    const totalBilled = filteredFees.reduce((a, c: any) => a + (parseFloat(c.amount) || 0), 0) + filteredStudents.reduce((a, s: any) => a + (parseFloat(s.annualCharges) || 0), 0);
 
     const expected = (viewMode === 'all-time') ? totalBilled : currentMonthBilled;
 
     return {
-      students: students.length,
+      students: filteredStudents.length,
       gross,
       acIn: allTimeAC,
       tuitionIn,
       expenses: targetExps + targetSals,
       expected,
-      pending: (fees.reduce((a, c) => a + ((parseFloat(c.amount) || 0) - (parseFloat(c.paidTuition) || 0)), 0)) + 
-               (students.reduce((a, s) => a + ((parseFloat(s.annualCharges) || 0) - (parseFloat(s.paidAnnualCharges) || 0)), 0))
+      pending: (filteredFees.reduce((a, c) => a + ((parseFloat(c.amount) || 0) - (parseFloat(c.paidTuition) || 0)), 0)) + 
+               (filteredStudents.reduce((a, s) => a + ((parseFloat(s.annualCharges) || 0) - (parseFloat(s.paidAnnualCharges) || 0)), 0)),
+      branchMetrics: data.branches.map(b => {
+        const branchStudents = students.filter(s => (s.branchId || 'branch_main') === (b.branchId || b.id));
+        const branchFees = targetFees.filter(f => (f.branchId || 'branch_main') === (b.branchId || b.id));
+        
+        const bTuition = branchFees.reduce((a, c: any) => a + (c.isACOnly ? 0 : (parseFloat(c.paidTuition) || parseFloat(c.amount) || 0)), 0);
+        const bAC = branchStudents.reduce((a, s: any) => a + (parseFloat(s.paidAnnualCharges) || 0), 0);
+        
+        const bPending = (fees.filter(f => (f.branchId || 'branch_main') === (b.branchId || b.id)).reduce((a, c) => a + ((parseFloat(c.amount) || 0) - (parseFloat(c.paidTuition) || 0)), 0)) +
+                         (branchStudents.reduce((a, s) => a + ((parseFloat(s.annualCharges) || 0) - (parseFloat(s.paidAnnualCharges) || 0)), 0));
+
+        return {
+          id: b.branchId || b.id,
+          name: b.name,
+          isDefault: b.isDefault,
+          students: branchStudents.length,
+          gross: bTuition + bAC,
+          pending: bPending
+        };
+      })
     };
   };
 
@@ -101,6 +139,8 @@ export default function Dashboard() {
       title: f.studentName || 'Student Payment',
       amount: f.totalReceived || f.amount,
       date: f.paymentDate || f.date || new Date().toISOString(),
+      studentBranchId: f.branchId || 'branch_main',
+      collectedByBranchId: f.collectedByBranchId || f.branchId || 'branch_main',
     })),
     ...data.expenses.map((e: any) => ({
       id: `exp-${e.id}`,
@@ -109,6 +149,7 @@ export default function Dashboard() {
       title: e.description || 'Expense',
       amount: e.amount,
       date: e.date || new Date().toISOString(),
+      branchId: e.branchId || 'branch_main'
     })),
     ...data.salaries.map((s: any) => ({
       id: `sal-${s.id}`,
@@ -117,32 +158,61 @@ export default function Dashboard() {
       title: s.staffName || `Staff ID: ${s.staffId}`,
       amount: s.amount,
       date: s.paymentDate || s.date || new Date().toISOString(),
+      branchId: s.branchId || 'branch_main'
     }))
-  ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+  ].filter(log => {
+    if (dashboardBranch === 'all') return true;
+    if (log.type === 'INCOME') {
+      const cBranch = (log as any).collectedByBranchId || 'branch_main';
+      return cBranch === dashboardBranch;
+    }
+    const expBranch = (log as any).branchId || 'branch_main';
+    return expBranch === dashboardBranch;
+  }).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
    .slice(0, 10);
 
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2.5rem'}}>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem'}}>
         <div>
           <h1 style={{marginBottom: '0.25rem'}}>School Pay Dashboard</h1>
-          <p>Financial performance overview for {viewMode === 'monthly' ? 'this month' : 'all sessions'}.</p>
+          <p style={{margin: 0, color: 'var(--text-muted)'}}>Financial performance overview for {dashboardBranch === 'all' ? 'All Campuses' : data.branches.find((b: any) => (b.branchId || b.id) === dashboardBranch)?.name || 'Main Campus'} ({viewMode === 'monthly' ? 'this month' : 'all sessions'}).</p>
         </div>
-        <div style={{background: 'var(--bg-card)', padding: '0.5rem', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', gap: '0.5rem'}}>
-            <button 
-                onClick={() => setViewMode('monthly')}
-                className={`btn ${viewMode === 'monthly' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{padding: '0.6rem 1.2rem', fontSize: '0.85rem', boxShadow: 'none', borderRadius: '10px'}}
+        <div style={{display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap'}}>
+          <div style={{background: 'var(--bg-card)', padding: '0.4rem 0.8rem', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+            <span style={{fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)'}}>📍 Active Campus:</span>
+            <select 
+              value={dashboardBranch} 
+              onChange={e => {
+                const val = e.target.value;
+                setDashboardBranch(val);
+                localStorage.setItem('admin-active-campus', val);
+                window.dispatchEvent(new Event('campus-changed'));
+              }}
+              style={{border: 'none', background: 'transparent', fontWeight: 700, color: 'var(--primary)', outline: 'none', cursor: 'pointer', fontSize: '0.9rem'}}
             >
-                🔄 Monthly View
-            </button>
-            <button 
-                onClick={() => setViewMode('all-time')}
-                className={`btn ${viewMode === 'all-time' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{padding: '0.6rem 1.2rem', fontSize: '0.85rem', boxShadow: 'none', borderRadius: '10px'}}
-            >
-                🌍 Lifetime Audit
-            </button>
+              <option value="all">🌐 All Campuses Overview</option>
+              {data.branches.map((b: any) => (
+                <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.isDefault ? '🏫' : '🏢'} {b.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{background: 'var(--bg-card)', padding: '0.5rem', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', gap: '0.5rem'}}>
+              <button 
+                  onClick={() => setViewMode('monthly')}
+                  className={`btn ${viewMode === 'monthly' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{padding: '0.6rem 1.2rem', fontSize: '0.85rem', boxShadow: 'none', borderRadius: '10px'}}
+              >
+                  🔄 Monthly View
+              </button>
+              <button 
+                  onClick={() => setViewMode('all-time')}
+                  className={`btn ${viewMode === 'all-time' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{padding: '0.6rem 1.2rem', fontSize: '0.85rem', boxShadow: 'none', borderRadius: '10px'}}
+              >
+                  🌍 Lifetime Audit
+              </button>
+          </div>
         </div>
       </div>
 
@@ -184,9 +254,12 @@ export default function Dashboard() {
       </div>
 
 
-
-      <h2>Recent Activity (In / Out)</h2>
-      <p style={{marginBottom: '1.5rem'}}>Latest financial movements (Income & Expenses) recorded in the system.</p>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem'}}>
+        <div>
+          <h2 style={{margin: 0}}>Recent Activity ({dashboardBranch === 'all' ? 'All Campuses' : data.branches.find((b: any) => (b.branchId || b.id) === dashboardBranch)?.name || 'Main Campus'})</h2>
+          <p style={{margin: 0, color: 'var(--text-muted)'}}>Latest financial movements (Income & Expenses) recorded in the system.</p>
+        </div>
+      </div>
       
       <div className="glass-panel table-container">
         <table className="table">
@@ -194,6 +267,7 @@ export default function Dashboard() {
             <tr>
               <th>S.No</th>
               <th>Description / Title</th>
+              <th>Submitted In</th>
               <th>Category</th>
               <th>Date</th>
               <th>Amount</th>
@@ -218,12 +292,45 @@ export default function Dashboard() {
                  <tr key={`log_${log.id}_${idx}_${log.type}`}>
                    <td style={{color: 'var(--text-muted)', fontSize: '0.9rem'}}>{idx + 1}.</td>
                    <td style={{fontWeight: 'bold'}}>
-                      {log.title}
-                      {log.type === 'INCOME' ? (
-                        <span style={{fontSize: '0.7rem', marginLeft: '8px', padding: '2px 6px', background: 'var(--success-bg)', color: 'var(--success)', borderRadius: '4px'}}>IN</span>
-                      ) : (
-                        <span style={{fontSize: '0.7rem', marginLeft: '8px', padding: '2px 6px', background: 'var(--danger-bg)', color: 'var(--danger)', borderRadius: '4px'}}>OUT</span>
-                      )}
+                      <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        <span>{log.title}</span>
+                        {log.type === 'INCOME' ? (
+                          <span style={{fontSize: '0.7rem', padding: '2px 6px', background: 'var(--success-bg)', color: 'var(--success)', borderRadius: '4px'}}>IN</span>
+                        ) : (
+                          <span style={{fontSize: '0.7rem', padding: '2px 6px', background: 'var(--danger-bg)', color: 'var(--danger)', borderRadius: '4px'}}>OUT</span>
+                        )}
+                      </div>
+
+                      {(() => {
+                        if (log.type !== 'INCOME') return null;
+                        const bMap = new Map();
+                        data.branches.forEach((b: any) => bMap.set(b.branchId || b.id, b.name));
+                        const sBranch = (log as any).studentBranchId;
+                        const sName = bMap.get(sBranch) || (sBranch === 'branch_main' ? 'Main Campus' : sBranch);
+                        return (
+                          <span style={{fontSize: '0.75rem', display: 'block', marginTop: '2px', color: 'var(--text-muted)', fontWeight: 500}}>
+                            🏛️ Enrolled: {sName || 'Main Campus'}
+                          </span>
+                        );
+                      })()}
+                   </td>
+                   <td>
+                      {(() => {
+                        if (log.type !== 'INCOME') return <span style={{color: 'var(--text-muted)'}}>—</span>;
+                        const bMap = new Map();
+                        data.branches.forEach((b: any) => bMap.set(b.branchId || b.id, b.name));
+                        const cBranch = (log as any).collectedByBranchId;
+                        const sBranch = (log as any).studentBranchId;
+                        const cName = bMap.get(cBranch) || (cBranch === 'branch_main' ? 'Main Campus' : cBranch);
+                        const isCross = sBranch && cBranch && sBranch !== cBranch;
+
+                        return (
+                          <span style={{fontWeight: 600, color: isCross ? '#d97706' : 'inherit'}}>
+                            {cName || 'Main Campus'}
+                            {isCross && <span style={{fontSize: '0.7rem', display: 'inline-block', marginTop: '2px', background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 700}}>Cross-Branch</span>}
+                          </span>
+                        );
+                      })()}
                    </td>
                    <td style={{fontSize: '0.85rem', color: 'var(--text-muted)'}}>{log.category}</td>
                    <td style={{fontSize: '0.9rem'}}>{new Date(log.date || new Date()).toLocaleDateString('en-GB')}</td>

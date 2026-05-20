@@ -6,7 +6,9 @@ export default function ClassesHub() {
   const [classes, setClasses] = useState<any[]>([]);
   const [showClassModal, setShowClassModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [classForm, setClassForm] = useState({ name: '', section: '' });
+  const [classForm, setClassForm] = useState({ name: '', section: '', branchId: '' });
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
 
   const fetchClasses = async () => {
     try {
@@ -22,11 +24,25 @@ export default function ClassesHub() {
 
   useEffect(() => {
     fetchClasses();
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+      setClassForm(prev => ({ ...prev, branchId: saved !== 'all' ? saved : 'branch_main' }));
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+        setClassForm(prev => ({ ...prev, branchId: curr !== 'all' ? curr : 'branch_main' }));
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   const handleEditClick = (c: any) => {
     setEditingId(c.id);
-    setClassForm({ name: c.name, section: c.section || '' });
+    setClassForm({ name: c.name, section: c.section || '', branchId: c.branchId || 'branch_main' });
     setShowClassModal(true);
   };
 
@@ -36,28 +52,52 @@ export default function ClassesHub() {
     if (res.ok) fetchClasses();
   };
 
+  const filteredClasses = classes.filter(c => selectedBranch === 'all' || (c.branchId || 'branch_main') === selectedBranch);
+
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem'}}>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem'}}>
         <div>
           <h1>Classes Management</h1>
           <p>Organize students into classes and sections.</p>
         </div>
-        <button onClick={() => { setEditingId(null); setClassForm({name:'', section:''}); setShowClassModal(true); }} className="btn btn-primary">+ Create New Class</button>
+        <div style={{display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap'}}>
+          {branches.length > 1 && (
+            <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-card)', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)'}}>
+              <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>📍 Campus:</span>
+              <select 
+                className="form-input" 
+                style={{padding: 0, height: 'auto', background: 'transparent', border: 'none', fontWeight: 700, color: 'var(--primary)', cursor: 'pointer', outline: 'none'}} 
+                value={selectedBranch} 
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedBranch(val);
+                  localStorage.setItem('admin-active-campus', val);
+                  window.dispatchEvent(new Event('campus-changed'));
+                }}
+              >
+                <option value="all">🌐 All Campuses</option>
+                {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
+          <button onClick={() => { setEditingId(null); setClassForm({name:'', section:'', branchId: selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main')}); setShowClassModal(true); }} className="btn btn-primary">+ Create New Class</button>
+        </div>
       </div>
 
       <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem'}}>
-        {classes.length === 0 ? (
+        {filteredClasses.length === 0 ? (
           <div className="glass-panel" style={{gridColumn: '1 / -1', padding: '3rem', textAlign: 'center'}}>
             <p style={{color: 'var(--text-muted)'}}>No classes have been created yet.</p>
           </div>
         ) : (
-          classes.map(c => (
+          filteredClasses.map(c => (
             <div key={c.id} className="glass-panel" style={{padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem'}}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
                 <div>
                   <h2 style={{margin: 0, fontSize: '1.4rem'}}>{c.name}</h2>
                   {c.section && <span className="badge badge-success" style={{marginTop: '0.5rem', display: 'inline-block'}}>{c.section}</span>}
+                  <span className="badge badge-neutral" style={{marginTop: '0.5rem', display: 'inline-block', marginLeft: '0.5rem', background: '#f1f5f9'}}>{branches.find(b => (b.branchId || b.id) === (c.branchId || 'branch_main'))?.name || 'Main Campus'}</span>
                 </div>
                 <button className="btn btn-secondary" style={{padding: '0.3rem 0.6rem', fontSize: '0.75rem'}} onClick={() => handleEditClick(c)}>Edit</button>
               </div>
@@ -83,12 +123,12 @@ export default function ClassesHub() {
               const res = await fetch('/api/classes', {
                 method: editingId ? "PUT" : "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(editingId ? { ...classForm, id: editingId } : classForm)
+                body: JSON.stringify(editingId ? { ...classForm, id: editingId } : { ...classForm, branchId: classForm.branchId || (selectedBranch !== 'all' ? selectedBranch : 'branch_main') })
               });
               if(res.ok) {
                 setShowClassModal(false);
                 setEditingId(null);
-                setClassForm({name:'', section:''});
+                setClassForm({name:'', section:'', branchId: selectedBranch !== 'all' ? selectedBranch : 'branch_main'});
                 fetchClasses();
               } else {
                 alert((await res.json()).error);
@@ -102,6 +142,14 @@ export default function ClassesHub() {
                 <label className="form-label">Section (Optional, e.g., A, B, Blue)</label>
                 <input className="form-input" value={classForm.section} onChange={e => setClassForm({...classForm, section: e.target.value})} />
               </div>
+              {branches.length > 1 && (
+                <div className="form-group">
+                  <label className="form-label">Campus</label>
+                  <select className="form-input" value={classForm.branchId || (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main'))} onChange={e => setClassForm({...classForm, branchId: e.target.value})}>
+                    {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+              )}
               
               <div style={{display: 'flex', gap: '1rem', marginTop: '2rem'}}>
                 <button type="button" className="btn btn-secondary" style={{flex: 1}} onClick={() => { setShowClassModal(false); setEditingId(null); }}>Close</button>

@@ -13,6 +13,8 @@ export default function CollectionReports() {
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedYear, setSelectedYear] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
 
   const fetchClasses = async () => {
     try {
@@ -48,6 +50,18 @@ export default function CollectionReports() {
     checkRole();
     fetchReportData();
     fetchClasses();
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   const filteredFees = fees.filter(f => {
@@ -59,9 +73,10 @@ export default function CollectionReports() {
     const matchMonth = selectedMonth === 'all' || f.month === selectedMonth;
     const matchYear = selectedYear === 'all' || f.year === selectedYear;
     const matchStatus = selectedStatus === 'all' || f.status === selectedStatus;
+    const matchBranch = selectedBranch === 'all' || (f.branchId || 'branch_main') === selectedBranch;
     const isNotACOnly = !f.isACOnly && f.month !== 'Annual Charges';
 
-    return matchSearch && matchClass && matchMonth && matchYear && matchStatus && isNotACOnly;
+    return matchSearch && matchClass && matchMonth && matchYear && matchStatus && matchBranch && isNotACOnly;
   });
 
   const totalBilled = filteredFees.reduce((acc, f) => acc + (parseFloat(f.amount) || 0), 0);
@@ -148,6 +163,25 @@ export default function CollectionReports() {
               <option value="Unpaid">Unpaid Only</option>
             </select>
           </div>
+          {branches.length > 1 && (
+            <div style={{flex: '1', minWidth: '140px'}}>
+              <label className="form-label" style={{fontSize: '0.75rem', marginBottom: '0.5rem'}}>CAMPUS</label>
+              <select 
+                className="form-input" 
+                style={{padding: '0.55rem 0.8rem'}} 
+                value={selectedBranch} 
+                onChange={e => {
+                  const val = e.target.value;
+                  setSelectedBranch(val);
+                  localStorage.setItem('admin-active-campus', val);
+                  window.dispatchEvent(new Event('campus-changed'));
+                }}
+              >
+                <option value="all">🌐 All Campuses</option>
+                {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 

@@ -56,6 +56,9 @@ export default function GenerateFees() {
   };
 
   const [classes, setClasses] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
+
   const fetchClasses = async () => {
     try {
       const res = await fetch('/api/classes');
@@ -110,6 +113,19 @@ export default function GenerateFees() {
 
     fetchMonthFees();
     fetchClasses();
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,7 +162,9 @@ export default function GenerateFees() {
     // Flexible class match (trimming both sides)
     const matchesClass = selectedClass === 'all' || 
                          (f.className || "").toString().trim() === selectedClass.trim();
-    return matchesSearch && matchesClass;
+    
+    const matchesBranch = selectedBranch === 'all' || (f.branchId || 'branch_main') === selectedBranch;
+    return matchesSearch && matchesClass && matchesBranch;
   });
 
   const handlePrintBulk = async () => {
@@ -207,6 +225,22 @@ export default function GenerateFees() {
                 const displayName = `${c.name}${c.section ? ` - ${c.section}` : ''}`;
                 return <option key={c.id} value={displayName}>{displayName}</option>;
               })}
+            </select>
+          </div>
+          <div style={{flex: 1}}>
+            <label className="form-label">Filter Campus</label>
+            <select 
+              className="form-input" 
+              value={selectedBranch} 
+              onChange={e => {
+                const val = e.target.value;
+                setSelectedBranch(val);
+                localStorage.setItem('admin-active-campus', val);
+                window.dispatchEvent(new Event('campus-changed'));
+              }}
+            >
+              <option value="all">🌐 All Campuses</option>
+              {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
             </select>
           </div>
         </div>

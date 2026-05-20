@@ -14,6 +14,19 @@ export async function getTenantId(): Promise<string> {
   }
 }
 
+export async function getTenantBranchId(): Promise<string | null> {
+  try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get('school-session');
+    if (!session?.value) return null;
+    const user = JSON.parse(session.value);
+    // Return branchId if it exists in session, otherwise null (means admin/all branches)
+    return user.branchId || null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Cache with TTL (30 seconds) ---
 const CACHE_TTL_MS = 30_000;
 interface CacheEntry {

@@ -13,8 +13,10 @@ export default function StudentsDirectory() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedClassId, setSelectedClassId] = useState('all');
+  const [selectedBranchId, setSelectedBranchId] = useState('all'); // 🏛️ Branch filter
   const [classes, setClasses] = useState<any[]>([]);
-  const [formData, setFormData] = useState({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0' });
+  const [branches, setBranches] = useState<any[]>([]);
+  const [formData, setFormData] = useState({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0', branchId: 'branch_main' });
 
   const fetchClasses = async () => {
     try {
@@ -27,15 +29,39 @@ export default function StudentsDirectory() {
     }
   };
 
+  const fetchBranches = async () => {
+    try {
+      const res = await fetch('/api/branches');
+      const data = await res.json();
+      setBranches(Array.isArray(data) ? data : []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranchId(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranchId(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
+  }, []);
+
   useEffect(() => {
     fetchClasses();
+    fetchBranches();
   }, []);
 
   const fetchStudents = async () => {
     setLoading(true);
     try {
       const classQuery = selectedClassId !== 'all' ? `&classId=${selectedClassId}` : '';
-      const res = await fetch(`/api/students?page=${page}&limit=20&search=${search}${classQuery}`, { cache: 'no-store' });
+      const branchQuery = selectedBranchId !== 'all' ? `&branchId=${selectedBranchId}` : '';
+      const res = await fetch(`/api/students?page=${page}&limit=20&search=${search}${classQuery}${branchQuery}`, { cache: 'no-store' });
       const data = await res.json();
       setStudents(Array.isArray(data.students) ? data.students : []);
       if (data.error) console.error("API Error:", data.details || data.error);
@@ -53,7 +79,7 @@ export default function StudentsDirectory() {
       fetchStudents();
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [search, page, selectedClassId]);
+  }, [search, page, selectedClassId, selectedBranchId]);
 
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,10 +88,11 @@ export default function StudentsDirectory() {
       fatherName: formData.fatherName,
       admissionNumber: formData.admissionNumber,
       classId: formData.classId,
+      branchId: formData.branchId || 'branch_main', // 🏛️ Strict branch isolation
       monthlyFee: parseFloat(formData.monthlyFee || '0'),
       discount: parseFloat(formData.discount || '0'),
       annualCharges: parseFloat(formData.annualCharges || '0'),
-      paidAnnualCharges: editingId ? undefined : 0, // only init for new
+      paidAnnualCharges: editingId ? undefined : 0,
       status: 'Active',
       ...(editingId ? { id: editingId } : {})
     };
@@ -79,7 +106,7 @@ export default function StudentsDirectory() {
     if (res.ok) {
       setShowModal(false);
       setEditingId(null);
-      setFormData({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0' });
+      setFormData({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0', branchId: 'branch_main' });
       fetchStudents();
     } else {
       alert("Failed to save.");
@@ -93,6 +120,7 @@ export default function StudentsDirectory() {
       fatherName: student.fatherName || '',
       admissionNumber: student.admissionNumber || '',
       classId: student.classId || '',
+      branchId: student.branchId || 'branch_main',
       monthlyFee: (student.monthlyFee || 0).toString(),
       discount: (student.discount || 0).toString(),
       annualCharges: (student.annualCharges || 0).toString()
@@ -133,22 +161,44 @@ export default function StudentsDirectory() {
           >
             Export to Excel
           </button>
-          <button onClick={() => { setEditingId(null); setFormData({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0' }); setShowModal(true); }} className="btn btn-primary">+ Add Student Globally</button>
+          <button onClick={() => { setEditingId(null); setFormData({ name: '', fatherName: '', admissionNumber: '', classId: '', monthlyFee: '', discount: '', annualCharges: '0', branchId: selectedBranchId !== 'all' ? selectedBranchId : (branches.find(b => b.isDefault)?.branchId || 'branch_main') }); setShowModal(true); }} className="btn btn-primary">+ Add Student</button>
         </div>
       </div>
 
-      <div className="glass-panel" style={{padding: '1.5rem', marginBottom: '2rem', display: 'flex', gap: '1rem'}}>
-        <input 
-          type="text" 
-          className="form-input" 
-          placeholder="Search by name, father name, or class..." 
-          style={{flex: 2}}
+      <div className="glass-panel" style={{padding: '1.5rem', marginBottom: '2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap'}}>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="Search by name, father name, or class..."
+          style={{flex: 2, minWidth: '180px'}}
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
-        <select 
-          className="form-input" 
-          style={{flex: 1}}
+        {/* 🏛️ Branch Filter */}
+        {branches.length > 1 && (
+          <select
+            id="students-branch-filter"
+            className="form-input"
+            style={{flex: 1, minWidth: '140px'}}
+            value={selectedBranchId}
+            onChange={(e) => { 
+              const val = e.target.value;
+              setSelectedBranchId(val); 
+              localStorage.setItem('admin-active-campus', val);
+              window.dispatchEvent(new Event('campus-changed'));
+              setPage(1); 
+            }}
+          >
+            <option value="all">🌐 All Campuses</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.branchId || b.id}>{b.isDefault ? '🏫' : '🏢'} {b.name}</option>
+            ))}
+          </select>
+        )}
+        <select
+          id="students-class-filter"
+          className="form-input"
+          style={{flex: 1, minWidth: '120px'}}
           value={selectedClassId}
           onChange={(e) => { setSelectedClassId(e.target.value); setPage(1); }}
         >
@@ -185,7 +235,9 @@ export default function StudentsDirectory() {
                   <td style={{fontWeight: 700}}>{s.admissionNumber || 'N/A'}</td>
                   <td>
                     <div style={{fontWeight: 600}}>{s.name}</div>
-                    <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>S/O: {s.fatherName || 'N/A'}</div>
+                    <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>
+                      S/O: {s.fatherName || 'N/A'} • 🏢 {branches.find(b => (b.branchId || b.id) === (s.branchId || 'branch_main'))?.name || 'Main Campus'}
+                    </div>
                   </td>
                   <td>{s.className?.toString().includes('Class') ? s.className : `Class ${s.className || s.classId}`}</td>
                   <td>Rs. {s.monthlyFee || 0}</td>
@@ -233,6 +285,16 @@ export default function StudentsDirectory() {
                   <input required className="form-input" value={formData.fatherName} onChange={e => setFormData({...formData, fatherName: e.target.value})} />
                 </div>
                 <div>
+                  <label className="form-label">Assign Campus</label>
+                  <select required className="form-input" value={formData.branchId} onChange={e => setFormData({...formData, branchId: e.target.value})}>
+                    {branches.map(b => (
+                      <option key={b.id || b.branchId} value={b.branchId || b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem'}}>
+                <div>
                   <label className="form-label">Assign Class</label>
                   <select required className="form-input" value={formData.classId} onChange={e => setFormData({...formData, classId: e.target.value})}>
                     <option value="">-- Select a Class --</option>
@@ -241,16 +303,14 @@ export default function StudentsDirectory() {
                     ))}
                   </select>
                 </div>
-              </div>
-              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem'}}>
                 <div className="form-group">
                   <label className="form-label">Monthly Fixed Fee (Rs.)</label>
                   <input required type="number" className="form-input" value={formData.monthlyFee} onChange={e => setFormData({...formData, monthlyFee: e.target.value})} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Discount / Scholarship (Rs.)</label>
-                  <input type="number" className="form-input" placeholder="0" value={formData.discount} onChange={e => setFormData({...formData, discount: e.target.value})} />
-                </div>
+              </div>
+              <div className="form-group" style={{marginBottom: '1.25rem'}}>
+                <label className="form-label">Discount / Scholarship (Rs.)</label>
+                <input type="number" className="form-input" placeholder="0" value={formData.discount} onChange={e => setFormData({...formData, discount: e.target.value})} />
               </div>
               <div className="form-group">
                 <label className="form-label">Annual Charges (Total for Year)</label>

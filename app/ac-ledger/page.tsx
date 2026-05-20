@@ -10,6 +10,8 @@ export default function ACLedger() {
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedYear, setSelectedYear] = useState('2026');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -37,6 +39,18 @@ export default function ACLedger() {
 
   useEffect(() => {
     fetchData();
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   const filtered = students.filter(s => {
@@ -52,8 +66,9 @@ export default function ACLedger() {
     const remaining = total - paid;
     const status = remaining <= 0 ? 'Cleared' : paid > 0 ? 'Partial' : 'Unpaid';
     const matchesStatus = statusFilter === 'all' || status === statusFilter;
+    const matchesBranch = selectedBranch === 'all' || (s.branchId || 'branch_main') === selectedBranch;
 
-    return matchesSearch && matchesClass && matchesStatus && matchesYear;
+    return matchesSearch && matchesClass && matchesStatus && matchesYear && matchesBranch;
   });
 
   const handleCollect = async (e: React.FormEvent) => {
@@ -138,6 +153,24 @@ export default function ACLedger() {
             ))}
           </select>
         </div>
+        {branches.length > 1 && (
+          <div style={{flex: 1, minWidth: '150px'}}>
+            <label className="form-label">Campus</label>
+            <select 
+              className="form-input" 
+              value={selectedBranch} 
+              onChange={e => {
+                const val = e.target.value;
+                setSelectedBranch(val);
+                localStorage.setItem('admin-active-campus', val);
+                window.dispatchEvent(new Event('campus-changed'));
+              }}
+            >
+              <option value="all">🌐 All Campuses</option>
+              {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+            </select>
+          </div>
+        )}
         <div style={{flex: 1, minWidth: '120px'}}>
           <label className="form-label">Year</label>
           <select className="form-input" value={selectedYear} onChange={e => setSelectedYear(e.target.value)}>

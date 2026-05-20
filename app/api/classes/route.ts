@@ -1,17 +1,41 @@
 import { NextResponse } from 'next/server';
-import { readData, writeData, generateId, getTenantId } from '@/lib/dbHandler';
+import { readData, writeData, generateId, getTenantId, getTenantBranchId } from '@/lib/dbHandler';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   const schoolId = await getTenantId();
   try {
+    const { searchParams } = new URL(request.url);
+    const sessionBranchId = await getTenantBranchId();
+    let branchId = sessionBranchId || searchParams.get('branchId') || 'all';
+
+    const branches = await readData<any>('branches.json', schoolId);
+    const defaultBranch = branches.find((b: any) => b.isDefault);
+    const defaultBranchId = defaultBranch ? (defaultBranch.branchId || defaultBranch.id) : 'branch_main';
+    const isDefaultRequested = branchId === defaultBranchId || branchId === 'branch_main';
+
     const classes = await readData<any>('classes.json', schoolId);
     const students = await readData<any>('students.json', schoolId);
 
-    const processedClasses = classes.map((c: any) => ({
+    const filteredClasses = branchId === 'all'
+      ? classes
+      : classes.filter((c: any) => {
+          const cb = c.branchId || 'branch_main';
+          if (isDefaultRequested && (cb === 'branch_main' || !c.branchId)) return true;
+          return cb === branchId;
+        });
+
+    const processedClasses = filteredClasses.map((c: any) => ({
       ...c,
-      studentCount: students.filter((s: any) => s.classId?.toString() === c.id?.toString()).length
+      branchId: c.branchId || 'branch_main',
+      studentCount: students.filter((s: any) => {
+        if (s.classId?.toString() !== c.id?.toString()) return false;
+        if (branchId === 'all') return true;
+        const sb = s.branchId || 'branch_main';
+        if (isDefaultRequested && (sb === 'branch_main' || !s.branchId)) return true;
+        return sb === branchId;
+      }).length
     }));
 
     const response = NextResponse.json(processedClasses);
@@ -37,6 +61,7 @@ export async function POST(request: Request) {
     const newClass = {
       id: newId,
       schoolId,
+      branchId: body.branchId || 'branch_main', // 🏛️ Branch isolation
       name,
       section,
       monthlyFee: parseFloat(monthlyFee),

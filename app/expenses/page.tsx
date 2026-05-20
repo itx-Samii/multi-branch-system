@@ -5,7 +5,9 @@ export default function ExpenseManager() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [salaries, setSalaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState({ category: 'Salary', amount: '', description: '' });
+  const [formData, setFormData] = useState({ category: 'Salary', amount: '', description: '', branchId: '' });
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
   
   // Filtering states
   const [monthFilter, setMonthFilter] = useState('all');
@@ -14,6 +16,23 @@ export default function ExpenseManager() {
   const now = new Date();
   const currentMonthNum = now.getMonth();
   const currentYearNum = now.getFullYear();
+
+  useEffect(() => {
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+      setFormData(prev => ({ ...prev, branchId: saved !== 'all' ? saved : 'branch_main' }));
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+        setFormData(prev => ({ ...prev, branchId: curr !== 'all' ? curr : 'branch_main' }));
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
+  }, []);
 
   const fetchExpenses = async () => {
     setLoading(true);
@@ -39,13 +58,14 @@ export default function ExpenseManager() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { ...formData, amount: parseFloat(formData.amount) || 0, date: new Date().toISOString() };
+    const targetBranch = formData.branchId || (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main'));
+    const payload = { ...formData, amount: parseFloat(formData.amount) || 0, date: new Date().toISOString(), branchId: targetBranch };
     await fetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    setFormData({ category: 'Salary', amount: '', description: '' });
+    setFormData({ category: 'Salary', amount: '', description: '', branchId: targetBranch });
     fetchExpenses();
   };
 
@@ -73,6 +93,7 @@ export default function ExpenseManager() {
       category: '💰 Salary (Auto)', 
       description: `Payroll: ${s.staffName} (${s.month})`, 
       amount: s.amount,
+      branchId: s.branchId || 'branch_main',
       type: 'auto' 
     }))
   ];
@@ -81,7 +102,8 @@ export default function ExpenseManager() {
     const d = new Date(e.date || new Date());
     const mMatch = monthFilter === 'all' || d.getMonth() === parseInt(monthFilter);
     const yMatch = yearFilter === 'all' || d.getFullYear() === parseInt(yearFilter);
-    return mMatch && yMatch;
+    const bMatch = selectedBranch === 'all' || (e.branchId || 'branch_main') === selectedBranch;
+    return mMatch && yMatch && bMatch;
   });
 
   const displayItems = filteredItems.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -126,6 +148,14 @@ export default function ExpenseManager() {
               <label className="form-label">Short Description</label>
               <input required type="text" className="form-input" placeholder="e.g. Month of April Bill" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
             </div>
+            {branches.length > 1 && (
+              <div className="form-group">
+                <label className="form-label">Campus</label>
+                <select className="form-input" value={formData.branchId || (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.branchId || 'branch_main'))} onChange={e => setFormData({...formData, branchId: e.target.value})}>
+                  {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+                </select>
+              </div>
+            )}
             <button type="submit" className="btn btn-primary" style={{width: '100%', marginTop: '1rem'}}>Record Expense</button>
           </form>
         </div>
@@ -167,7 +197,26 @@ export default function ExpenseManager() {
                      {["2025", "2026", "2027"].map(y => <option key={y} value={y}>{y}</option>)}
                    </select>
                 </div>
-                {(monthFilter !== 'all' || yearFilter !== 'all') && (
+                {branches.length > 1 && (
+                  <div style={{flex: '1', minWidth: '140px'}}>
+                    <label className="form-label" style={{fontSize: '0.75rem', marginBottom: '0.5rem'}}>CAMPUS</label>
+                    <select 
+                      className="form-input" 
+                      style={{padding: '0.5rem 0.8rem'}} 
+                      value={selectedBranch} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setSelectedBranch(val);
+                        localStorage.setItem('admin-active-campus', val);
+                        window.dispatchEvent(new Event('campus-changed'));
+                      }}
+                    >
+                      <option value="all">🌐 All Campuses</option>
+                      {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {(monthFilter !== 'all' || yearFilter !== 'all' || selectedBranch !== 'all') && (
                   <button 
                     onClick={() => {setMonthFilter('all'); setYearFilter('all');}} 
                     className="btn btn-secondary"

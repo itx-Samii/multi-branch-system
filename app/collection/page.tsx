@@ -21,6 +21,10 @@ export default function FeeCollection() {
   const [schoolAddress, setSchoolAddress] = useState('Campus Address / Contact No');
   const [logo, setLogo] = useState('');
 
+  // 🏛️ Multi-Branch: branches list and selected branch for cross-branch fee submission
+  const [branches, setBranches] = useState<any[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('all');
+
   // Pre-fetch all fees for rapid typeahead searching
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -34,7 +38,26 @@ export default function FeeCollection() {
     setSchoolName(localStorage.getItem('fms-school-name') || 'TRUST SCHOOL SYSTEM');
     setSchoolAddress(localStorage.getItem('fms-school-address') || 'Campus Address / Contact No');
     setLogo(localStorage.getItem('fms-school-logo') || '');
+
+    // 🏛️ Fetch branches for cross-branch filter
+    fetch('/api/branches').then(r => r.json()).then(data => {
+      setBranches(Array.isArray(data) ? data : []);
+    }).catch(() => {});
     
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSelectedBranch(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSelectedBranch(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('campus-changed', handleSync);
+      };
+    }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
@@ -57,7 +80,9 @@ export default function FeeCollection() {
 
     if (val.trim().length > 1) {
       try {
-        const res = await fetch(`/api/fees?search=${encodeURIComponent(val)}&limit=8`);
+        // 🏛️ Include explicit branchId filter in search for multi-branch fee collection
+        const branchParam = `&branchId=${selectedBranch}`;
+        const res = await fetch(`/api/fees?search=${encodeURIComponent(val)}&limit=8${branchParam}`);
         if (res.ok) {
           const data = await res.json();
           setSuggestions(Array.isArray(data) ? data : []);
@@ -86,10 +111,12 @@ export default function FeeCollection() {
     setLoading(true);
     setErrorMsg('');
     setFeeData(null);
+    // 🏛️ Explicit branch param for multi-branch fee collection support
+    const branchParam = `&branchId=${selectedBranch}`;
     try {
       // 1. Search by ID first (Direct API call)
       if (!isNaN(Number(search))) {
-        const res = await fetch(`/api/fees?id=${search}`);
+        const res = await fetch(`/api/fees?id=${search}${branchParam}`);
         if (res.ok) {
           const data = await res.json();
           const list = Array.isArray(data) ? data : (data.id ? [data] : []);
@@ -104,7 +131,7 @@ export default function FeeCollection() {
       }
 
       // 2. Search by Name (API call with search param)
-      const res = await fetch(`/api/fees?search=${encodeURIComponent(search)}`);
+      const res = await fetch(`/api/fees?search=${encodeURIComponent(search)}${branchParam}`);
       if (res.ok) {
         const data = await res.json();
         const results = Array.isArray(data) ? data : [];
@@ -113,7 +140,7 @@ export default function FeeCollection() {
           setPaidTuition(results[0].amount.toString());
           setPaidAC((results[0].remainingAnnualCharges || 0).toString());
         } else {
-          setErrorMsg("No active billing voucher found.");
+          setErrorMsg(selectedBranch !== 'all' ? `No voucher found in selected branch. Try switching to "All Branches" to search across all campuses.` : "No active billing voucher found.");
         }
       } else {
         setErrorMsg("Search failed. Please check connection.");
@@ -166,7 +193,82 @@ export default function FeeCollection() {
   return (
     <div style={{animation: 'fadeIn 0.5s ease-out'}}>
       <h1 className="no-print">Fee Collection Portal</h1>
-      <p className="no-print" style={{marginBottom: '2rem'}}>Scan or enter voucher number / student roll number to receive cash.</p>
+      <p className="no-print" style={{marginBottom: '1rem'}}>Scan or enter voucher number / student roll number to receive cash.</p>
+
+      {/* 🏛️ Cross-Branch Selector Bar — Always visible when branches exist */}
+      <div className="no-print glass-panel" style={{padding: '1rem 1.5rem', marginBottom: '1.5rem', borderLeft: '4px solid var(--primary)'}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
+          <span style={{fontWeight: 700, fontSize: '0.9rem', whiteSpace: 'nowrap', color: 'var(--primary)'}}>🏛️ Campus / Branch:</span>
+          
+          {/* Branch filter buttons */}
+          <div style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap', flex: 1}}>
+            {/* All Campuses button */}
+            <button
+              id="branch-filter-all"
+              type="button"
+              onClick={() => { setSelectedBranch('all'); localStorage.setItem('admin-active-campus', 'all'); window.dispatchEvent(new Event('campus-changed')); setFeeData(null); setSearch(''); }}
+              style={{
+                padding: '0.45rem 1rem', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem',
+                cursor: 'pointer', border: '2px solid var(--primary)',
+                background: selectedBranch === 'all' ? 'var(--primary)' : 'transparent',
+                color: selectedBranch === 'all' ? 'white' : 'var(--primary)',
+                transition: 'all 0.15s ease',
+              }}
+            >🌐 All Campuses</button>
+
+            {/* Individual branch buttons */}
+            {branches.map((b: any) => {
+              const bid = b.branchId || b.id;
+              const isSelected = selectedBranch === bid;
+              return (
+                <button
+                  key={b.id}
+                  id={`branch-filter-${b.id}`}
+                  type="button"
+                  onClick={() => { setSelectedBranch(bid); localStorage.setItem('admin-active-campus', bid); window.dispatchEvent(new Event('campus-changed')); setFeeData(null); setSearch(''); }}
+                  style={{
+                    padding: '0.45rem 1rem', borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    border: `2px solid ${isSelected ? 'var(--success)' : 'var(--border)'}`,
+                    background: isSelected ? 'var(--success)' : 'var(--bg-card)',
+                    color: isSelected ? 'white' : 'var(--text-muted)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {b.isDefault ? '🏫' : '🏢'} {b.name}
+                  {isSelected && <span style={{marginLeft: '0.4rem', fontSize: '0.7rem', opacity: 0.85}}>✓ Active</span>}
+                </button>
+              );
+            })}
+
+            {/* Loading state */}
+            {branches.length === 0 && (
+              <span style={{fontSize: '0.85rem', color: 'var(--text-muted)', padding: '0.4rem 0'}}>
+                ⏳ Loading branches...
+              </span>
+            )}
+          </div>
+
+          {/* Active branch indicator */}
+          {selectedBranch !== 'all' && (
+            <span style={{
+              fontSize: '0.78rem', color: 'var(--success)', background: 'var(--success-bg)',
+              border: '1px solid var(--success)', padding: '0.3rem 0.75rem', borderRadius: '6px', fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}>
+              🔍 {branches.find(b => (b.branchId || b.id) === selectedBranch)?.name || selectedBranch}
+            </span>
+          )}
+        </div>
+
+        {/* Helper hint */}
+        <div style={{marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--text-muted)'}}>
+          {selectedBranch === 'all'
+            ? '💡 Select a specific campus to filter students from that branch only, or keep "All Campuses" to search across entire school.'
+            : `💡 Showing students from selected campus only. Switch to "All Campuses" to search all branches.`}
+        </div>
+      </div>
+
 
       <form onSubmit={handleSearch} className="glass-panel no-print" style={{padding: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '2rem', position: 'relative'}}>
         <div style={{flex: 1, position: 'relative'}} ref={dropdownRef}>
@@ -269,6 +371,29 @@ export default function FeeCollection() {
                   <span style={{fontSize: '1.5rem', fontWeight: 900, letterSpacing: '2px'}} contentEditable suppressContentEditableWarning>{feeData.id}</span>
                </div>
             </div>
+
+            {/* Cross-Branch Indicator Banner */}
+            {(() => {
+              const bMap = new Map();
+              branches.forEach((b: any) => bMap.set(b.branchId || b.id, b.name));
+              const sBranch = feeData.branchId || 'branch_main';
+              const cBranch = feeData.collectedByBranchId || sBranch;
+              const sName = bMap.get(sBranch) || (sBranch === 'branch_main' ? 'Main Campus' : sBranch);
+              const cName = bMap.get(cBranch) || (cBranch === 'branch_main' ? 'Main Campus' : cBranch);
+
+              if (sBranch !== cBranch) {
+                return (
+                  <div style={{background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 700, textAlign: 'center', marginBottom: '15px'}}>
+                    📍 Student Enrolled at {sName} • Fee Collected at {cName}
+                  </div>
+                );
+              }
+              return (
+                <div style={{background: '#f1f5f9', color: '#64748b', padding: '6px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, textAlign: 'center', marginBottom: '15px'}}>
+                  🏛️ Enrolled Campus: {sName}
+                </div>
+              );
+            })()}
 
             {/* Student Info Lines */}
             <div className="info-row">

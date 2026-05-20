@@ -24,7 +24,9 @@ export default function ClassWiseTracking() {
   const [year, setYear] = useState(currentYear);
   const [classId, setClassId] = useState('1');
   const [classes, setClasses] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [submissionBranchFilter, setSubmissionBranchFilter] = useState('all');
   const [trackingData, setTrackingData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -87,7 +89,9 @@ export default function ClassWiseTracking() {
           paidTuition: feeRecord ? (feeRecord.paidTuition || 0) : 0,
           remainingAnnualCharges: feeRecord
             ? feeRecord.remainingAnnualCharges
-            : (student.annualCharges || 0) - (student.paidAnnualCharges || 0)
+            : (student.annualCharges || 0) - (student.paidAnnualCharges || 0),
+          studentBranchId: student.branchId || 'branch_main',
+          collectedByBranchId: feeRecord ? (feeRecord.collectedByBranchId || feeRecord.branchId || 'branch_main') : null
         };
       });
 
@@ -115,6 +119,16 @@ export default function ClassWiseTracking() {
     }
   };
 
+  const fetchBranches = async () => {
+    try {
+      const res = await fetch('/api/branches');
+      const data = await res.json();
+      setBranches(Array.isArray(data) ? data : []);
+    } catch {
+      console.error("Failed to fetch branches");
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     setSchoolName(localStorage.getItem('fms-school-name') || 'YOUR SCHOOL NAME');
@@ -132,6 +146,19 @@ export default function ClassWiseTracking() {
     setLateFine(parseInt(localStorage.getItem('fms-late-fine') || '500'));
 
     fetchClasses();
+    fetchBranches();
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setSubmissionBranchFilter(saved);
+
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setSubmissionBranchFilter(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
   }, []);
 
   useEffect(() => {
@@ -213,8 +240,12 @@ export default function ClassWiseTracking() {
     }
   };
 
-  const paidCount = trackingData.filter(d => d.status === 'Paid').length;
-  const unpaidCount = trackingData.filter(d => d.status === 'Unpaid' || d.status === 'Not Generated').length;
+  const filteredTrackingData = trackingData
+    .filter(d => statusFilter === 'all' || d.status === statusFilter || (statusFilter === 'Unpaid' && d.status === 'Not Generated'))
+    .filter(d => submissionBranchFilter === 'all' || d.collectedByBranchId === submissionBranchFilter || (!d.collectedByBranchId && (d.studentBranchId || 'branch_main') === submissionBranchFilter));
+
+  const paidCount = filteredTrackingData.filter(d => d.status === 'Paid').length;
+  const unpaidCount = filteredTrackingData.filter(d => d.status === 'Unpaid' || d.status === 'Not Generated').length;
 
   return (
     <div>
@@ -384,6 +415,18 @@ export default function ClassWiseTracking() {
             <option value="Not Generated">Not Generated</option>
           </select>
         </div>
+        <div style={{flex: 1}} className="no-print">
+          <label className="form-label">Submitted In</label>
+          <select className="form-input" value={submissionBranchFilter} onChange={e => {
+            const val = e.target.value;
+            setSubmissionBranchFilter(val);
+            localStorage.setItem('admin-active-campus', val);
+            window.dispatchEvent(new Event('campus-changed'));
+          }}>
+            <option value="all">All Branches</option>
+            {branches.map(b => <option key={b.branchId || b.id} value={b.branchId || b.id}>{b.name}</option>)}
+          </select>
+        </div>
         <div style={{alignSelf: 'flex-end'}}>
           <button className="btn btn-secondary" onClick={() => window.print()} style={{height: '42px'}}>Print List</button>
         </div>
@@ -405,6 +448,7 @@ export default function ClassWiseTracking() {
               <th style={{width: '80px'}}>Sr No</th>
               <th>Adm No</th>
               <th>Student & Father Name</th>
+              <th>Submitted In</th>
               <th>Monthly Fee</th>
               <th>Arrears</th>
               <th>Total Pending</th>
@@ -414,12 +458,11 @@ export default function ClassWiseTracking() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} style={{textAlign: 'center', padding: '2rem'}}>Processing records...</td></tr>
+              <tr><td colSpan={9} style={{textAlign: 'center', padding: '2rem'}}>Processing records...</td></tr>
             ) : trackingData.length === 0 ? (
-              <tr><td colSpan={8} style={{textAlign: 'center', padding: '2rem', color: 'var(--text-muted)'}}>No students found in this class.</td></tr>
+              <tr><td colSpan={9} style={{textAlign: 'center', padding: '2rem', color: 'var(--text-muted)'}}>No students found in this class.</td></tr>
             ) : (
-              trackingData
-                .filter(d => statusFilter === 'all' || d.status === statusFilter || (statusFilter === 'Unpaid' && d.status === 'Not Generated'))
+              filteredTrackingData
                 .map((d, idx) => (
                 <tr key={d.id} style={{background: (d.status === 'Unpaid' || d.status === 'Not Generated') ? 'rgba(239, 68, 68, 0.05)' : 'transparent'}}>
                   <td style={{color: 'var(--text-muted)'}}>#{idx + 1}</td>
@@ -427,6 +470,26 @@ export default function ClassWiseTracking() {
                   <td>
                     <div style={{fontWeight: 600}}>{d.studentName}</div>
                     <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>S/O: {d.fatherName || 'N/A'}</div>
+                  </td>
+                  <td>
+                    {d.status === 'Paid' || d.status === 'Partially Paid' ? (
+                      (() => {
+                        const bMap = new Map();
+                        branches.forEach(b => bMap.set(b.branchId || b.id, b.name));
+                        const cName = bMap.get(d.collectedByBranchId) || (d.collectedByBranchId === 'branch_main' ? 'Main Campus' : d.collectedByBranchId);
+                        const sBranch = d.studentBranchId || 'branch_main';
+                        const isCross = sBranch !== d.collectedByBranchId;
+
+                        return (
+                          <span style={{fontWeight: 600, color: isCross ? '#d97706' : 'inherit'}}>
+                            {cName || 'Main Campus'}
+                            {isCross && <span style={{fontSize: '0.7rem', display: 'block', marginTop: '2px', background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', padding: '2px 6px', borderRadius: '4px', width: 'fit-content', fontWeight: 700}}>Cross-Branch</span>}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>—</span>
+                    )}
                   </td>
                   <td>Rs. {d.amount}</td>
                   <td style={{color: '#64748b'}}>Rs. {Number(d.previousArrears || 0) + Number(d.remainingAnnualCharges || 0)}</td>

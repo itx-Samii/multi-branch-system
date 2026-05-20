@@ -26,6 +26,27 @@ export default function SidebarNav() {
     users: true
   });
 
+  const [branches, setBranches] = useState<any[]>([]);
+  const [activeCampus, setActiveCampus] = useState('all');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('admin-active-campus') || 'all';
+      setActiveCampus(saved);
+      
+      const handleSync = () => {
+        const curr = localStorage.getItem('admin-active-campus') || 'all';
+        setActiveCampus(curr);
+      };
+      window.addEventListener('campus-changed', handleSync);
+      return () => window.removeEventListener('campus-changed', handleSync);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/branches').then(r => r.json()).then(data => setBranches(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
   useEffect(() => {
     async function checkAuth() {
       try {
@@ -56,6 +77,7 @@ export default function SidebarNav() {
     { href: '/expenses', label: 'Expense Manager', roles: ['admin', 'accountant'], icon: '🧾', featureKey: 'expenses' },
     { href: '/ac-ledger', label: 'AC Ledger', roles: ['admin'], icon: '🏛️', featureKey: 'ledger' },
     { href: '/salaries', label: 'Salaries Manager', roles: ['admin'], icon: '💵', featureKey: 'salaries' },
+    { href: '/branches', label: 'Campus / Branches', roles: ['admin'], icon: '📍' },
     { href: '/classes', label: 'Classes Management', roles: ['admin'], icon: '🏫', featureKey: 'classes' },
     { href: '/students', label: 'All Students', roles: ['admin'], icon: '🎓', featureKey: 'students' },
     { href: '/users', label: 'Users & Roles', roles: ['admin'], icon: '🛡️', featureKey: 'users' },
@@ -104,13 +126,34 @@ export default function SidebarNav() {
             }}>
               {getRoleIcon(user.role)}
             </div>
-            <div style={{ overflow: 'hidden' }}>
+            <div style={{ overflow: 'hidden', width: '100%' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                 {user.displayName}
               </div>
               <div style={{ fontSize: '0.75rem', color: user.role === 'superadmin' ? '#f59e0b' : user.role === 'admin' ? '#c084fc' : '#38bdf8', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
                 {user.role} • <span style={{ color: 'var(--text-muted)' }}>{(user.schoolId === 'master' ? 'SaaS Master' : (user.schoolId || 'Brook Field')).replace('school_', '').toUpperCase()}</span>
               </div>
+              {user.role === 'admin' && branches.length > 1 && (
+                <div style={{ marginTop: '0.35rem', background: 'rgba(255,255,255,0.05)', padding: '0.2rem 0.4rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>📍 CAMPUS:</span>
+                  <select
+                    value={activeCampus}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setActiveCampus(val);
+                      localStorage.setItem('admin-active-campus', val);
+                      window.dispatchEvent(new Event('campus-changed'));
+                      window.location.reload();
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer', outline: 'none', width: '100%', textOverflow: 'ellipsis' }}
+                  >
+                    <option value="all">🌐 All Campuses</option>
+                    {branches.map((b: any) => (
+                      <option key={b.branchId || b.id} value={b.branchId || b.id} style={{ color: '#000' }}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
