@@ -66,7 +66,10 @@ export default function Dashboard() {
     const now = new Date();
     const { fees, students, expenses, salaries } = data;
     
-    const filteredStudents = dashboardBranch === 'all' ? students : students.filter(s => (s.branchId || 'branch_main') === dashboardBranch);
+    const filteredStudents = dashboardBranch === 'all' ? students : students.filter(s => {
+      const studentBranch = (!s.branchId || s.branchId === 'branch_main') ? (s.classBranchId || 'branch_main') : s.branchId;
+      return studentBranch === dashboardBranch;
+    });
     const filteredFees = dashboardBranch === 'all' ? fees : fees.filter(f => (f.collectedByBranchId || f.branchId || 'branch_main') === dashboardBranch);
     const filteredExpenses = dashboardBranch === 'all' ? expenses : expenses.filter(e => (e.branchId || 'branch_main') === dashboardBranch);
     const filteredSalaries = dashboardBranch === 'all' ? salaries : salaries.filter(s => (s.branchId || 'branch_main') === dashboardBranch);
@@ -108,7 +111,10 @@ export default function Dashboard() {
       pending: (filteredFees.reduce((a, c) => a + ((parseFloat(c.amount) || 0) - (parseFloat(c.paidTuition) || 0)), 0)) + 
                (filteredStudents.reduce((a, s) => a + ((parseFloat(s.annualCharges) || 0) - (parseFloat(s.paidAnnualCharges) || 0)), 0)),
       branchMetrics: data.branches.map(b => {
-        const branchStudents = students.filter(s => (s.branchId || 'branch_main') === (b.branchId || b.id));
+        const branchStudents = students.filter(s => {
+          const studentBranch = (!s.branchId || s.branchId === 'branch_main') ? (s.classBranchId || 'branch_main') : s.branchId;
+          return studentBranch === (b.branchId || b.id);
+        });
         const branchFees = targetFees.filter(f => (f.branchId || 'branch_main') === (b.branchId || b.id));
         
         const bTuition = branchFees.reduce((a, c: any) => a + (c.isACOnly ? 0 : (parseFloat(c.paidTuition) || parseFloat(c.amount) || 0)), 0);
