@@ -613,18 +613,25 @@ export default function ClassWiseTracking() {
                             <strong>A/C Title: {bankAccountTitle}</strong>
                          </div>
 
-                         <div className="info-grid">
-                            <div className="info-item"><strong>Document No</strong> <span>{f.voucherId}</span></div>
-                            <div className="info-item"><strong>Date</strong> <span>{new Date().toLocaleDateString('en-GB')}</span></div>
-                            <div className="info-item"><strong>Student Name</strong> <span>{f.studentName}</span></div>
-                            <div className="info-item"><strong>Father Name</strong> <span>{f.fatherName}</span></div>
-                            <div className="info-item"><strong>Student ID</strong> <span>{f.admissionNumber || 'N/A'}</span></div>
-                            <div className="info-item"><strong>Session</strong> <span>{f.month} {f.year}</span></div>
-                            <div className="info-item"><strong>Program</strong> <span>{f.className}</span></div>
-                            <div className="info-item"><strong>Institute ID</strong> <span>{instituteId}</span></div>
-                         </div>
+                         {(() => {
+                             const branchObj = branches.find(b => (b.branchId || b.id) === (f.studentBranchId || f.branchId || 'branch_main'));
+                             const branchName = branchObj ? branchObj.name : 'Main Campus';
+                             return (
+                                <div className="info-grid">
+                                   <div className="info-item"><strong>Document No</strong> <span>{f.voucherId}</span></div>
+                                   <div className="info-item"><strong>Date</strong> <span>{new Date().toLocaleDateString('en-GB')}</span></div>
+                                   <div className="info-item"><strong>Student Name</strong> <span>{f.studentName}</span></div>
+                                   <div className="info-item"><strong>Father Name</strong> <span>{f.fatherName}</span></div>
+                                   <div className="info-item"><strong>Student ID</strong> <span>{f.admissionNumber || 'N/A'}</span></div>
+                                   <div className="info-item"><strong>Campus</strong> <span>{branchName}</span></div>
+                                   <div className="info-item"><strong>Session</strong> <span>{f.month} {f.year}</span></div>
+                                   <div className="info-item"><strong>Program</strong> <span>{f.className}</span></div>
+                                   <div className="info-item"><strong>Institute ID</strong> <span>{instituteId}</span></div>
+                                </div>
+                             );
+                          })()}
 
-                         <table className="challan-table">
+                         <table className="challan-table" style={{marginTop: '2mm'}}>
                             <thead>
                                <tr><th>Particulars</th><th style={{width: '30%'}}>Amount</th></tr>
                             </thead>
