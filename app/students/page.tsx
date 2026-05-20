@@ -75,6 +75,16 @@ export default function StudentsDirectory() {
   };
 
   useEffect(() => {
+    if (selectedClassId !== 'all' && classes.length > 0) {
+      const filtered = classes.filter(c => selectedBranchId === 'all' || (c.branchId || 'branch_main') === selectedBranchId);
+      const exists = filtered.some(c => c.id.toString() === selectedClassId);
+      if (!exists) {
+        setSelectedClassId('all');
+      }
+    }
+  }, [selectedBranchId, classes, selectedClassId]);
+
+  useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       fetchStudents();
     }, 300);
@@ -203,7 +213,7 @@ export default function StudentsDirectory() {
           onChange={(e) => { setSelectedClassId(e.target.value); setPage(1); }}
         >
           <option value="all">All Classes</option>
-          {classes.map(c => (
+          {classes.filter(c => selectedBranchId === 'all' || (c.branchId || 'branch_main') === selectedBranchId).map(c => (
             <option key={c.id} value={c.id}>{c.name} {c.section ? `- ${c.section}` : ''}</option>
           ))}
         </select>
@@ -298,7 +308,7 @@ export default function StudentsDirectory() {
                   <label className="form-label">Assign Class</label>
                   <select required className="form-input" value={formData.classId} onChange={e => setFormData({...formData, classId: e.target.value})}>
                     <option value="">-- Select a Class --</option>
-                    {classes.map(c => (
+                    {classes.filter(c => (c.branchId || 'branch_main') === (formData.branchId || 'branch_main')).map(c => (
                       <option key={c.id} value={c.id}>{c.name} {c.section ? `- ${c.section}` : ''}</option>
                     ))}
                   </select>

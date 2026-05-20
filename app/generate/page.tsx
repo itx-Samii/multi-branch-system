@@ -128,6 +128,16 @@ export default function GenerateFees() {
     }
   }, []);
 
+  useEffect(() => {
+    if (selectedClass !== 'all' && classes.length > 0) {
+      const filtered = classes.filter(c => selectedBranch === 'all' || (c.branchId || 'branch_main') === selectedBranch);
+      const exists = filtered.some(c => `${c.name}${c.section ? ` - ${c.section}` : ''}` === selectedClass);
+      if (!exists) {
+        setSelectedClass('all');
+      }
+    }
+  }, [selectedBranch, classes, selectedClass]);
+
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -221,7 +231,7 @@ export default function GenerateFees() {
             <label className="form-label">Filter Class</label>
             <select className="form-input" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
               <option value="all">All Classes</option>
-              {classes.map(c => {
+              {classes.filter(c => selectedBranch === 'all' || (c.branchId || 'branch_main') === selectedBranch).map(c => {
                 const displayName = `${c.name}${c.section ? ` - ${c.section}` : ''}`;
                 return <option key={c.id} value={displayName}>{displayName}</option>;
               })}

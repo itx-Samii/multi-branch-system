@@ -162,6 +162,16 @@ export default function ClassWiseTracking() {
   }, []);
 
   useEffect(() => {
+    if (classes.length > 0) {
+      const filtered = classes.filter(c => submissionBranchFilter === 'all' || (c.branchId || 'branch_main') === submissionBranchFilter);
+      const exists = filtered.some(c => c.id.toString() === classId);
+      if (!exists && filtered.length > 0) {
+        setClassId(filtered[0].id.toString());
+      }
+    }
+  }, [submissionBranchFilter, classes, classId]);
+
+  useEffect(() => {
     if (classId) {
       fetchTracking();
     }
@@ -385,7 +395,7 @@ export default function ClassWiseTracking() {
           <label className="form-label">Select Class</label>
           <select className="form-input" value={classId} onChange={e => setClassId(e.target.value)}>
             <option value="">-- Choose Class --</option>
-            {classes.map(c => (
+            {classes.filter(c => submissionBranchFilter === 'all' || (c.branchId || 'branch_main') === submissionBranchFilter).map(c => (
               <option key={c.id} value={c.id}>
                 {c.name} {c.section ? ` - ${c.section}` : ''}
               </option>
