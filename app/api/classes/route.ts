@@ -65,7 +65,8 @@ export async function POST(request: Request) {
       name,
       section,
       monthlyFee: parseFloat(monthlyFee),
-      annualCharges: parseFloat(annualCharges || 0)
+      annualCharges: parseFloat(annualCharges || 0),
+      createdAt: new Date().toISOString()
     };
 
     classes.push(newClass);

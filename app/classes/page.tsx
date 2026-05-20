@@ -102,7 +102,7 @@ export default function ClassesHub() {
                 <button className="btn btn-secondary" style={{padding: '0.3rem 0.6rem', fontSize: '0.75rem'}} onClick={() => handleEditClick(c)}>Edit</button>
               </div>
               <div style={{color: 'var(--text-muted)', fontSize: '0.9rem', flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '0.4rem'}}>
-                <span>Created: {new Date(c.createdAt).toLocaleDateString()}</span>
+                <span>Created: {c.createdAt && !isNaN(new Date(c.createdAt).getTime()) ? new Date(c.createdAt).toLocaleDateString() : 'N/A'}</span>
                 <span style={{color: 'var(--text-main)', fontWeight: 600}}>Total Students: {c.studentCount || 0}</span>
               </div>
               <div style={{display: 'flex', gap: '0.5rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)'}}>
